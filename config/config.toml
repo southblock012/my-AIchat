@@ -1,0 +1,12 @@
+[mainConfig]
+appName = "AI-chat"
+host = "127.0.0.1"
+port = "8080"
+
+[mysqlConfig]
+host = "127.0.0.1"
+port = 3306
+username = "root"
+password = "123456"
+databaseName = "AIchat"
+charset =  "utf8mb4"
