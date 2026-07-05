@@ -21,10 +21,18 @@ type MysqlConfig struct {
 	MysqlCharset      string `toml:"charset"`
 }
 
+type JwtConfig struct {
+	ExpireDuration int    `toml:"expire_duration"`
+	Issuer         string `toml:"issuer"`
+	Subject        string `toml:"subject"`
+	Key            string `toml:"key"`
+}
+
 // Config 配置结构体(包含所有配置项)
 type Config struct {
 	MainConfig  `toml:"mainConfig"`
 	MysqlConfig `toml:"mysqlConfig"`
+	JwtConfig   `toml:"jwtConfig"`
 }
 
 var config *Config

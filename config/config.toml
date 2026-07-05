@@ -10,3 +10,9 @@ username = "root"
 password = "123456"
 databaseName = "AIchat"
 charset =  "utf8mb4"
+
+[jwtConfig]
+ expire_duration= 8760
+ issuer= "southblock"
+ subject= "myAIchat"
+ key= "binary"
