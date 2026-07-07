@@ -13,7 +13,7 @@ type MyClaim struct {
 	jwt.RegisteredClaims
 }
 
-func TokenGenerate(username string, id int64) (string, error) {
+func GenerateToken(username string, id int64) (string, error) {
 	claim := MyClaim{
 		Username: username,
 		ID:       id,
@@ -35,7 +35,7 @@ func ParseToken(token string) (MyClaim, bool) {
 	t, err := jwt.ParseWithClaims(token, &claim, func(t *jwt.Token) (interface{}, error) {
 		return []byte(config.GetConfig().JwtConfig.Key), nil
 	})
-	if !t.Valid || err != nil {
+	if err != nil || !t.Valid {
 		return MyClaim{}, false
 	}
 	return claim, true

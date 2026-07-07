@@ -17,6 +17,8 @@ const (
 	CodeInvalidCaptcha   Code = 2008 //验证码错误
 	CodeRecordNotFound   Code = 2009 //记录不存在
 	CodeIllegalPassword  Code = 2010 //密码不合法
+	CodeEmailExist       Code = 2011 //邮箱已存在
+	CodePasswordEmpty    Code = 2012 //密码为空
 
 	CodeForbidden Code = 3001 //权限不足
 
@@ -42,6 +44,8 @@ var msg = map[Code]string{
 	CodeInvalidCaptcha:   "验证码错误",
 	CodeRecordNotFound:   "记录不存在",
 	CodeIllegalPassword:  "密码不合法",
+	CodeEmailExist:       "邮箱已存在",
+	CodePasswordEmpty:    "密码为空",
 
 	CodeForbidden: "权限不足",
 
