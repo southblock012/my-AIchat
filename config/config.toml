@@ -12,7 +12,11 @@ databaseName = "AIchat"
 charset =  "utf8mb4"
 
 [jwtConfig]
- expire_duration= 8760
- issuer= "southblock"
- subject= "myAIchat"
- key= "binary"
+expire_duration= 8760
+issuer= "southblock"
+subject= "myAIchat"
+key= "binary"
+
+[eamilConfig]
+authcode = "your authcode "
+email = "your qq email"

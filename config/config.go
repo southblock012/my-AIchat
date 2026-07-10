@@ -28,11 +28,17 @@ type JwtConfig struct {
 	Key            string `toml:"key"`
 }
 
+type EmailConfig struct {
+	AuthCode string `toml:"authCode"`
+	Email    string `toml:"email"`
+}
+
 // Config 配置结构体(包含所有配置项)
 type Config struct {
 	MainConfig  `toml:"mainConfig"`
 	MysqlConfig `toml:"mysqlConfig"`
 	JwtConfig   `toml:"jwtConfig"`
+	EmailConfig `toml:"emailConfig"`
 }
 
 var config *Config

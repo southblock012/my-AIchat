@@ -2,6 +2,7 @@ package user
 
 import (
 	"my-AIchat/common/code"
+	"my-AIchat/common/email"
 	"my-AIchat/dao/user"
 	"my-AIchat/utils"
 	"my-AIchat/utils/myjwt"
@@ -27,9 +28,9 @@ func Login(username, password string) (string, code.Code) {
 }
 
 // 注册业务逻辑
-func Register(email, password string) (string, code.Code) {
+func Register(email_, password string) (string, code.Code) {
 	// 1.判断邮箱是否存在
-	if ok, _ := user.IsExistUserByEmail(email); ok {
+	if ok, _ := user.IsExistUserByEmail(email_); ok {
 		return "", code.CodeEmailExist
 	}
 	// 2.判断密码是否为空
@@ -38,14 +39,23 @@ func Register(email, password string) (string, code.Code) {
 	}
 	// 3.生成11位ID
 	username := utils.GenerateRandomID(11)
-	// 4.注册用户，写到数据库
-	user_, ok := user.Register(username, email, password)
+	// 4.发送验证码到邮箱
+	captcha := utils.GenerateRandomID(6)
+	if err := email.SendMail(email_, captcha, email.CodeMsg); err != nil {
+		return "", code.CodeServerBusy
+	}
+	// 5.发送ID到邮箱
+	if err := email.SendMail(email_, username, email.UserNameMsg); err != nil {
+		return "", code.CodeServerBusy
+	}
+	// 6.注册用户，写到数据库
+	user_, ok := user.Register(username, email_, password)
 	if !ok {
 		return "", code.CodeServerBusy
 	}
-	// 5.生成Token
+	// 7.生成Token
 	token, err := myjwt.GenerateToken(user_.Username, user_.ID)
-	// 6.返回Token
+	// 8.返回Token
 	if err != nil {
 		return "", code.CodeServerBusy
 	}
