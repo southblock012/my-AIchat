@@ -29,7 +29,7 @@ type JwtConfig struct {
 }
 
 type EmailConfig struct {
-	AuthCode string `toml:"authCode"`
+	AuthCode string `toml:"authcode"`
 	Email    string `toml:"email"`
 }
 
