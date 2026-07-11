@@ -1,0 +1,24 @@
+[mainConfig]
+appName = "AI-chat"
+host = "127.0.0.1"
+port = 8080
+
+[mysqlConfig]
+host = "127.0.0.1"
+port = 3306
+username = "****"
+password = "****"
+databaseName = "****"
+charset =  "utf8mb4"
+
+[jwtConfig]
+expire_duration= 8760
+issuer= "****"
+subject= "myAIchat"
+key= "****"
+
+[redisConfig]
+host = "127.0.0.1"
+port = 6379
+password = ""
+db = 0

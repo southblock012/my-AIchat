@@ -33,12 +33,32 @@ type EmailConfig struct {
 	Email    string `toml:"email"`
 }
 
+type RedisConfig struct {
+	RedisHost     string `toml:"host"`
+	RedisPort     int    `toml:"port"`
+	RedisPassword string `toml:"password"`
+	RedisDb       int    `toml:"db"`
+}
+
 // Config 配置结构体(包含所有配置项)
 type Config struct {
 	MainConfig  `toml:"mainConfig"`
 	MysqlConfig `toml:"mysqlConfig"`
 	JwtConfig   `toml:"jwtConfig"`
 	EmailConfig `toml:"emailConfig"`
+	RedisConfig `toml:"redisConfig"`
+}
+
+type RedisKeyConfig struct {
+	CaptchaPrefix   string
+	IndexName       string
+	IndexNamePrefix string
+}
+
+var DefaultRedisKeyConfig = RedisKeyConfig{
+	CaptchaPrefix:   "captcha:%s",
+	IndexName:       "rag_docs:%s:idx",
+	IndexNamePrefix: "rag_docs:%s:",
 }
 
 var config *Config
