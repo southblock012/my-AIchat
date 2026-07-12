@@ -12,5 +12,6 @@ func UserRouter(r *gin.RouterGroup) {
 		userRouter.POST("/login", user.UserLogin)
 		userRouter.POST("/register", user.UserRegister)
 		userRouter.POST("/captcha", user.UserCaptcha)
+
 	}
 }

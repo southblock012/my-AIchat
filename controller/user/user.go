@@ -30,6 +30,14 @@ type (
 		controller.Response
 		Token string `json:"token,omitempty"`
 	}
+	// CaptchaRequest 用户获取验证码请求体
+	CaptchaRequest struct {
+		Email string `json:"email" binding:"required"`
+	}
+	// CaptchaResponse 用户获取验证码响应体
+	CaptchaResponse struct {
+		controller.Response
+	}
 )
 
 // UserLogin 用户登录
@@ -77,7 +85,22 @@ func UserRegister(c *gin.Context) {
 
 // UserCaptcha 用户获取验证码
 func UserCaptcha(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
-		"msg": "user captcha",
-	})
+	req := new(CaptchaRequest)
+	res := new(CaptchaResponse)
+	//解析参数
+	if err := c.ShouldBindJSON(req); err != nil {
+		c.JSON(http.StatusOK, res.SetCode(code.CodeInvalidParams))
+		return
+	}
+
+	//给service层进行处理
+	code_ := user.SendCaptcha(req.Email)
+	if code_ != code.CodeSuccess {
+		c.JSON(http.StatusOK, res.SetCode(code_))
+		return
+	}
+	//匿名字段，其实本身res.Success()调用就是res.Response.Success()
+	//res.Response.Success()
+	res.SetSuccess()
+	c.JSON(http.StatusOK, res)
 }

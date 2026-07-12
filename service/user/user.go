@@ -3,6 +3,7 @@ package user
 import (
 	"my-AIchat/common/code"
 	"my-AIchat/common/email"
+	"my-AIchat/common/redis"
 	"my-AIchat/dao/user"
 	"my-AIchat/utils"
 	"my-AIchat/utils/myjwt"
@@ -28,7 +29,7 @@ func Login(username, password string) (string, code.Code) {
 }
 
 // 注册业务逻辑
-func Register(email_, password string) (string, code.Code) {
+func Register(email_, password, captcha string) (string, code.Code) {
 	// 1.判断邮箱是否存在
 	if ok, _ := user.IsExistUserByEmail(email_); ok {
 		return "", code.CodeEmailExist
@@ -39,10 +40,9 @@ func Register(email_, password string) (string, code.Code) {
 	}
 	// 3.生成11位ID
 	username := utils.GenerateRandomID(11)
-	// 4.发送验证码到邮箱
-	captcha := utils.GenerateRandomID(6)
-	if err := email.SendMail(email_, captcha, email.CodeMsg); err != nil {
-		return "", code.CodeServerBusy
+	// 4.验证验证码
+	if ok, err := redis.CheckCaptchaForEmail(email_, captcha); !ok || err != nil {
+		return "", code.CodeInvalidCaptcha
 	}
 	// 5.发送ID到邮箱
 	if err := email.SendMail(email_, username, email.UserNameMsg); err != nil {
@@ -61,4 +61,23 @@ func Register(email_, password string) (string, code.Code) {
 	}
 
 	return token, code.CodeSuccess
+}
+
+// 往指定邮箱发送验证码
+// 分为以下任务：
+// 1：先存放redis
+// 2：再进行远程发送
+func SendCaptcha(email_ string) code.Code {
+	send_code := utils.GenerateRandomID(6)
+	//1:先存放到redis
+	if err := redis.SetCaptchaForEmail(email_, send_code); err != nil {
+		return code.CodeServerBusy
+	}
+
+	//2:再进行远程发送
+	if err := email.SendMail(email_, send_code, email.CodeMsg); err != nil {
+		return code.CodeServerBusy
+	}
+
+	return code.CodeSuccess
 }
