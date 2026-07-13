@@ -24,6 +24,7 @@ type (
 	RegisterRequest struct {
 		Email    string `json:"email" binding:"required"`
 		Password string `json:"password" binding:"required"`
+		Captcha  string `json:"captcha" binding:"required"`
 	}
 	// RegisterResponse 用户注册响应体
 	RegisterResponse struct {
@@ -71,8 +72,7 @@ func UserRegister(c *gin.Context) {
 		c.JSON(http.StatusOK, res)
 		return
 	}
-	//调用user.Register服务层注册用户
-	token, code_ := user.Register(req.Email, req.Password)
+	token, code_ := user.Register(req.Email, req.Password, req.Captcha)
 	if code_ != code.CodeSuccess || token == "" {
 		res.SetCode(code_)
 		c.JSON(http.StatusOK, res)

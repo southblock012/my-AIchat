@@ -14,7 +14,7 @@ var Rdb *redisCli.Client
 
 var ctx = context.Background()
 
-func Init() {
+func InitRedis() error {
 	conf := config.GetConfig()
 	host := conf.RedisConfig.RedisHost
 	port := conf.RedisConfig.RedisPort
@@ -26,8 +26,14 @@ func Init() {
 		Addr:     addr,
 		Password: password,
 		DB:       db,
-		Protocol: 2, // 使用 Protocol 2 避免 maint_notifications 警告
+		Protocol: 2,
 	})
+
+	if err := Rdb.Ping(ctx).Err(); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func SetCaptchaForEmail(email, captcha string) error {
@@ -50,13 +56,7 @@ func CheckCaptchaForEmail(email, userInput string) (bool, error) {
 	}
 
 	if strings.EqualFold(storedCaptcha, userInput) {
-
-		// 验证成功后删除 key
-		if err := Rdb.Del(ctx, key).Err(); err != nil {
-
-		} else {
-
-		}
+		_ = Rdb.Del(ctx, key).Err()
 		return true, nil
 	}
 
