@@ -40,13 +40,22 @@ type RedisConfig struct {
 	RedisDb       int    `toml:"db"`
 }
 
+type RabbitmqConfig struct {
+	RabbitmqHost     string `toml:"host"`
+	RabbitmqPort     int    `toml:"port"`
+	RabbitmqUsername string `toml:"username"`
+	RabbitmqPassword string `toml:"password"`
+	RabbitmqVhost    string `toml:"vhost"`
+}
+
 // Config 配置结构体(包含所有配置项)
 type Config struct {
-	MainConfig  `toml:"mainConfig"`
-	MysqlConfig `toml:"mysqlConfig"`
-	JwtConfig   `toml:"jwtConfig"`
-	EmailConfig `toml:"emailConfig"`
-	RedisConfig `toml:"redisConfig"`
+	MainConfig     `toml:"mainConfig"`
+	MysqlConfig    `toml:"mysqlConfig"`
+	JwtConfig      `toml:"jwtConfig"`
+	EmailConfig    `toml:"emailConfig"`
+	RedisConfig    `toml:"redisConfig"`
+	RabbitmqConfig `toml:"rabbitmqConfig"`
 }
 
 type RedisKeyConfig struct {
