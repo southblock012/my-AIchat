@@ -4,7 +4,6 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"my-AIchat/controller/session"
-	"my-AIchat/controller/tts"
 	"my-AIchat/middleware/jwt"
 )
 
@@ -18,8 +17,8 @@ func AIRouter(r *gin.RouterGroup) {
 		r.POST("history", session.ChatHistory)
 
 		// TTS相关接口
-		r.POST("tts", tts.CreateTTSTask)
-		r.GET("tts/query", tts.QueryTTSTask)
+		//r.POST("tts", tts.CreateTTSTask)
+		//r.GET("tts/query", tts.QueryTTSTask)
 
 		r.POST("send-stream-new-session", session.CreateStreamSessionAndSendMessage)
 		r.POST("send-stream", session.ChatStreamSend)

@@ -89,7 +89,6 @@ func CreateSessionAndSendMessage(c *gin.Context) {
 
 func CreateStreamSessionAndSendMessage(c *gin.Context) {
 	req := new(CreateSessionAndSendMessageRequest)
-	res := new(CreateSessionAndSendMessageResponse)
 	userName := c.GetString("userName") // From JWT middleware
 	if err := c.ShouldBindJSON(req); err != nil {
 		c.JSON(http.StatusOK, gin.H{"error": "Invalid parameters"})
