@@ -119,7 +119,7 @@ export default {
 
     const loadSessions = async () => {
       try {
-        const response = await api.get('/sessions')
+        const response = await api.get('/chat/sessions')
         if (response.data && response.data.status_code === 1000 && Array.isArray(response.data.sessions)) {
           const sessionMap = {}
           response.data.sessions.forEach(s => {
@@ -155,7 +155,7 @@ export default {
       // lazy load history if not present
       if (!sessions.value[sessionId].messages || sessions.value[sessionId].messages.length === 0) {
         try {
-          const response = await api.post('/history', { sessionId: currentSessionId.value })
+          const response = await api.post('/chat/history', { sessionId: currentSessionId.value })
           if (response.data && response.data.status_code === 1000 && Array.isArray(response.data.history)) {
             const messages = response.data.history.map(item => ({
               role: item.is_user ? 'user' : 'assistant',
@@ -180,7 +180,7 @@ export default {
         return
       }
       try {
-        const response = await api.post('/history', { sessionId: currentSessionId.value })
+        const response = await api.post('/chat/history', { sessionId: currentSessionId.value })
         if (response.data && response.data.status_code === 1000 && Array.isArray(response.data.history)) {
           const messages = response.data.history.map(item => ({
             role: item.is_user ? 'user' : 'assistant',
@@ -266,8 +266,8 @@ export default {
 
 
       const url = tempSession.value
-        ? '/api/send-stream-new-session'  
-        : '/api/send-stream'           
+        ? '/api/chat/send-stream-new-session'  
+        : '/api/chat/send-stream'           
 
       const headers = {
         'Content-Type': 'application/json',
@@ -395,7 +395,7 @@ export default {
     async function handleNormal(question) {
       if (tempSession.value) {
 
-        const response = await api.post('/send-new-session', {
+        const response = await api.post('/chat/send-new-session', {
           question: question,
           modelType: selectedModel.value
         })
@@ -421,11 +421,18 @@ export default {
         }
       } else {
 
-        const sessionMsgs = sessions.value[currentSessionId.value].messages
+        // 检查当前会话是否有效，无效则转为新会话
+        const sessionData = sessions.value[currentSessionId.value]
+        if (!sessionData || !sessionData.messages) {
+          tempSession.value = true
+          return await handleNormal(question)
+        }
+
+        const sessionMsgs = sessionData.messages
 
         sessionMsgs.push({ role: 'user', content: question })
 
-        const response = await api.post('/send', {
+        const response = await api.post('/chat/send', {
           question: question,
           modelType: selectedModel.value,
           sessionId: currentSessionId.value

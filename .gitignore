@@ -3,3 +3,5 @@ config.toml
 .trae/
 项目架构与缺口分析.md
 .workbuddy/
+面试总结-Bug修复记录.md
+vue-frontend/node_modules/
