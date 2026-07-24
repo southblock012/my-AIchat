@@ -1,0 +1,7 @@
+.gitignore
+*.exe
+/vue-frontend/node_modules
+/deploy/.env
+.workbuddy
+项目回顾文档
+/deploy

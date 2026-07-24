@@ -1,7 +1,7 @@
-.vscode/
-config.toml
-.trae/
-项目架构与缺口分析.md
-.workbuddy/
-面试总结-Bug修复记录.md
-vue-frontend/node_modules/
+*.exe
+vue-frontend/node_modules
+项目回顾文档
+.workbuddy
+/deploy/.env
+/config/config.toml
+/config/config.docker.toml
