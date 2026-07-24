@@ -20,8 +20,6 @@ WORKDIR /app
 
 COPY --from=builder /app/main .
 
-COPY ./config/config.docker.toml ./config/config.toml
-
 EXPOSE 8080
 
 CMD ["./main"]
