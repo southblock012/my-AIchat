@@ -1,8 +1,6 @@
-version: "3.8"
-
 services:
   rabbitmq:
-    image: rabbitmq:3-management-alpine
+    image: rabbitmq:4-management-alpine
     container_name: aichat-rabbitmq
     environment:
       - RABBITMQ_DEFAULT_USER=aichat
@@ -24,6 +22,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    volumes:
+      - mysql_data:/var/lib/mysql
   redis:
     image: redis:7-alpine
     container_name: aichat-redis
@@ -33,6 +33,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    volumes:
+      - redis_data:/data
 
   backend:
     depends_on:
@@ -60,3 +62,10 @@ services:
     container_name: aichat-frontend
     ports:
       - "3000:80"
+    depends_on:
+      - backend          # 保证 backend 先启动，避免 nginx 起时 backend DNS 未就绪
+    restart: unless-stopped  # 双保险：若仍因时序启动失败，自动重启直到就绪
+
+volumes:
+  mysql_data:
+  redis_data:
