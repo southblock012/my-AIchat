@@ -16,7 +16,7 @@ const (
 	ctxWindowSize   = 20               // 上下文窗口保留最近多少条消息（约 10 轮对话）
 	ctxWindowTTL    = 30 * time.Minute // 窗口空闲存活时间，每次访问自动续期
 	memProfileTTL   = 10 * time.Minute // 长期记忆 profile 缓存时间
-	memProfileLimit = 20               // 注入 top-K 条记忆
+	memProfileLimit = 10               // 注入 top-K 条记忆
 )
 
 func ctxWindowKey(sessionID string) string {

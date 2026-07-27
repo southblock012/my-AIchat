@@ -13,26 +13,43 @@ import (
 	"github.com/cloudwego/eino/schema"
 )
 
-const extractPromptTemplate = `你是一个记忆提取器。请从下面这段用户与助手的对话中，提取值得长期记住的、关于用户本人的信息（跨会话有效）。
-只提取明确表达的事实/偏好/项目/结论/禁忌，不要提取临时闲聊。
+const extractPromptTemplate = `你是一个记忆提取器。从下面这段对话中，提取值得长期记住的、关于用户本人的信息（跨会话有效）。
 可选类别：fact(事实) / preference(偏好) / project(项目或工作) / conclusion(结论) / avoid(禁忌)。
-请只输出 JSON 数组，格式：[{"category":"preference","content":"用户偏好直接给可运行代码","importance":4}]。没有可提取内容则输出 []。
-不要输出任何解释文字，只输出 JSON。
+
+已有记忆（id | 类别 | 内容）：
+%s
+
+请只输出 JSON 数组，每条格式：
+{"category":"preference","content":"一句话","importance":4,"invalidates_id":0}
+- importance: 1-5，<=2 表示不确定/待确认，>=3 表示较确定
+- 若新记忆推翻了某条"已有记忆"，invalidates_id 填那条旧记忆的 id；否则填 0
+只输出 JSON 数组，不要其他文字。
 
 对话：
 用户：%s
 助手：%s`
 
 type extractItem struct {
-	Category   string `json:"category"`
-	Content    string `json:"content"`
-	Importance int    `json:"importance"`
+	Category     string `json:"category"`
+	Content      string `json:"content"`
+	Importance   int    `json:"importance"`
+	InvalidatesID uint  `json:"invalidates_id"`
 }
 
 // ExtractAndSaveMemories 从一轮对话中抽取并保存记忆。
 // 最小闭环：同步调用 LLM 抽取；由调用方决定是否用 goroutine 包裹以避免阻塞主回复。
 func (a *AIHelper) ExtractAndSaveMemories(ctx context.Context, userName, userQuestion, aiResponse string) {
-	prompt := fmt.Sprintf(extractPromptTemplate, userQuestion, aiResponse)
+	// 1. 取现有记忆（含 id），让 LLM 能判断新记忆是否推翻旧记忆
+	existing, _ := usermemory.GetMemoriesForExtract(userName, 20)
+	var eb strings.Builder
+	if len(existing) == 0 {
+		eb.WriteString("无")
+	} else {
+		for _, m := range existing {
+			fmt.Fprintf(&eb, "%d | %s | %s\n", m.ID, m.Category, m.Content)
+		}
+	}
+	prompt := fmt.Sprintf(extractPromptTemplate, eb.String(), userQuestion, aiResponse)
 	resp, err := a.model.GenerateResponse(ctx, []*schema.Message{{Role: schema.User, Content: prompt}})
 	if err != nil {
 		log.Println("[memory] extract llm failed:", err)
@@ -57,6 +74,13 @@ func (a *AIHelper) ExtractAndSaveMemories(ctx context.Context, userName, userQue
 			Source:     a.SessionID,
 		}); err != nil {
 			log.Println("[memory] save failed:", err)
+			continue
+		}
+		// 2. 冲突处理：新记忆推翻了某条旧记忆 → 将其标记为已失效
+		if it.InvalidatesID > 0 {
+			if err := usermemory.InvalidateMemory(userName, it.InvalidatesID); err != nil {
+				log.Println("[memory] invalidate failed:", err)
+			}
 		}
 	}
 }
