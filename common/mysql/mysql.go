@@ -64,6 +64,7 @@ func migrate() error {
 		&model.User{},
 		&model.Session{},
 		&model.Message{},
+		&model.UserMemory{},
 	)
 	if err != nil {
 		return err

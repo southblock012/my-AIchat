@@ -12,7 +12,7 @@ import (
 
 var Rdb *redisCli.Client
 
-var ctx = context.Background()
+var Ctx = context.Background()
 
 func InitRedis() error {
 	conf := config.GetConfig()
@@ -29,7 +29,7 @@ func InitRedis() error {
 		Protocol: 2,
 	})
 
-	if err := Rdb.Ping(ctx).Err(); err != nil {
+	if err := Rdb.Ping(Ctx).Err(); err != nil {
 		return err
 	}
 
@@ -39,13 +39,13 @@ func InitRedis() error {
 func SetCaptchaForEmail(email, captcha string) error {
 	key := GenerateCaptcha(email)
 	expire := 2 * time.Minute
-	return Rdb.Set(ctx, key, captcha, expire).Err()
+	return Rdb.Set(Ctx, key, captcha, expire).Err()
 }
 
 func CheckCaptchaForEmail(email, userInput string) (bool, error) {
 	key := GenerateCaptcha(email)
 
-	storedCaptcha, err := Rdb.Get(ctx, key).Result()
+	storedCaptcha, err := Rdb.Get(Ctx, key).Result()
 	if err != nil {
 		if err == redisCli.Nil {
 
@@ -56,7 +56,7 @@ func CheckCaptchaForEmail(email, userInput string) (bool, error) {
 	}
 
 	if strings.EqualFold(storedCaptcha, userInput) {
-		_ = Rdb.Del(ctx, key).Err()
+		_ = Rdb.Del(Ctx, key).Err()
 		return true, nil
 	}
 

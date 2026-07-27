@@ -5,6 +5,7 @@ import (
 	"log"
 	"my-AIchat/common/aihelper"
 	"my-AIchat/common/code"
+	"my-AIchat/dao/message"
 	"my-AIchat/dao/session"
 	"my-AIchat/model"
 	"net/http"
@@ -166,25 +167,19 @@ func ChatSend(userName string, sessionID string, userQuestion string, modelType 
 }
 
 func GetChatHistory(userName string, sessionID string) ([]model.History, code.Code) {
-	// 获取AIHelper中的消息历史
-	manager := aihelper.GetGlobalManager()
-	helper, exists := manager.GetAIHelper(userName, sessionID)
-	if !exists {
+	// 从 MySQL 读全量历史（跨重启一致），不再依赖进程内存 a.messages
+	msgs, err := message.GetMessagesBySessionID(sessionID)
+	if err != nil {
+		log.Println("GetChatHistory error:", err)
 		return nil, code.CodeServerBusy
 	}
-
-	messages := helper.GetMessages()
-	history := make([]model.History, 0, len(messages))
-
-	// 转换消息为历史格式（根据消息顺序或内容判断用户/AI消息）
-	for i, msg := range messages {
-		isUser := i%2 == 0
+	history := make([]model.History, 0, len(msgs))
+	for _, msg := range msgs {
 		history = append(history, model.History{
-			IsUser:  isUser,
+			IsUser:  msg.IsUser,
 			Content: msg.Content,
 		})
 	}
-
 	return history, code.CodeSuccess
 }
 

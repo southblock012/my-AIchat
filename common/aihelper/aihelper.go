@@ -6,6 +6,8 @@ import (
 	"my-AIchat/model"
 	"my-AIchat/utils"
 	"sync"
+
+	"github.com/cloudwego/eino/schema"
 )
 
 // AIHelper AI助手结构体，包含消息历史和AI模型
@@ -23,7 +25,7 @@ func NewAIHelper(model_ AIModel, SessionID string) *AIHelper {
 	return &AIHelper{
 		model:    model_,
 		messages: make([]*model.Message, 0),
-		//异步推送到消息队列中
+		// 异步经 RabbitMQ 持久化消息（保留原有链路，未改动）
 		saveFunc: func(msg *model.Message) (*model.Message, error) {
 			data := rabbitmq.GenerateMessageMQParam(msg.SessionID, msg.Content, msg.UserName, msg.IsUser)
 			err := rabbitmq.RMQMessage.Publish(data)
@@ -65,13 +67,18 @@ func (a *AIHelper) GetMessages() []*model.Message {
 // 同步生成
 func (a *AIHelper) GenerateResponse(userName string, ctx context.Context, userQuestion string) (*model.Message, error) {
 
-	//调用存储函数
+	//调用存储函数（同步写库）
 	a.AddMessage(userQuestion, userName, true, true)
 
-	a.mu.RLock()
-	//将model.Message转化成schema.Message
-	messages := utils.ConvertToSchemaMessages(a.messages)
-	a.mu.RUnlock()
+	// 从 Redis 上下文窗口取最近 N 条历史 + 当前问题拼成发给模型的 messages
+	hist := loadContextWindow(a.SessionID)
+	messages := utils.ConvertToSchemaMessages(hist)
+	messages = append(messages, &schema.Message{Role: schema.User, Content: userQuestion})
+
+	//注入长期记忆（prepend 一条 system message，带 Redis 缓存）
+	if memSys := a.BuildMemorySystemMessage(userName); memSys != nil {
+		messages = append([]*schema.Message{memSys}, messages...)
+	}
 
 	//调用模型生成回复
 	schemaMsg, err := a.model.GenerateResponse(ctx, messages)
@@ -82,8 +89,21 @@ func (a *AIHelper) GenerateResponse(userName string, ctx context.Context, userQu
 	//将schema.Message转化成model.Message
 	modelMsg := utils.ConvertToModelMessage(a.SessionID, userName, schemaMsg)
 
-	//调用存储函数
+	//调用存储函数（同步写库）
 	a.AddMessage(modelMsg.Content, userName, false, true)
+
+	//更新 Redis 上下文窗口（追加本轮 user+assistant，内部截断到最近 N 条）
+	hist = append(hist,
+		&model.Message{SessionID: a.SessionID, UserName: userName, Content: userQuestion, IsUser: true},
+		&model.Message{SessionID: a.SessionID, UserName: userName, Content: modelMsg.Content, IsUser: false},
+	)
+	_ = saveContextWindow(a.SessionID, hist)
+
+	//最小闭环：后台抽取本轮记忆（goroutine 不阻塞回复；生产建议改 RabbitMQ 异步队列）
+	go func() {
+		defer func() { _ = recover() }()
+		a.ExtractAndSaveMemories(ctx, userName, userQuestion, modelMsg.Content)
+	}()
 
 	return modelMsg, nil
 }
@@ -91,12 +111,18 @@ func (a *AIHelper) GenerateResponse(userName string, ctx context.Context, userQu
 // 流式生成
 func (a *AIHelper) StreamResponse(userName string, ctx context.Context, cb StreamCallback, userQuestion string) (*model.Message, error) {
 
-	//调用存储函数
+	//调用存储函数（同步写库）
 	a.AddMessage(userQuestion, userName, true, true)
 
-	a.mu.RLock()
-	messages := utils.ConvertToSchemaMessages(a.messages)
-	a.mu.RUnlock()
+	// 从 Redis 上下文窗口取最近 N 条历史 + 当前问题拼成发给模型的 messages
+	hist := loadContextWindow(a.SessionID)
+	messages := utils.ConvertToSchemaMessages(hist)
+	messages = append(messages, &schema.Message{Role: schema.User, Content: userQuestion})
+
+	//注入长期记忆（prepend 一条 system message，带 Redis 缓存）
+	if memSys := a.BuildMemorySystemMessage(userName); memSys != nil {
+		messages = append([]*schema.Message{memSys}, messages...)
+	}
 
 	content, err := a.model.StreamResponse(ctx, messages, cb)
 	if err != nil {
@@ -110,8 +136,21 @@ func (a *AIHelper) StreamResponse(userName string, ctx context.Context, cb Strea
 		IsUser:    false,
 	}
 
-	//调用存储函数
+	//调用存储函数（同步写库）
 	a.AddMessage(modelMsg.Content, userName, false, true)
+
+	//更新 Redis 上下文窗口（追加本轮 user+assistant，内部截断到最近 N 条）
+	hist = append(hist,
+		&model.Message{SessionID: a.SessionID, UserName: userName, Content: userQuestion, IsUser: true},
+		&model.Message{SessionID: a.SessionID, UserName: userName, Content: modelMsg.Content, IsUser: false},
+	)
+	_ = saveContextWindow(a.SessionID, hist)
+
+	//最小闭环：后台抽取本轮记忆
+	go func() {
+		defer func() { _ = recover() }()
+		a.ExtractAndSaveMemories(ctx, userName, userQuestion, modelMsg.Content)
+	}()
 
 	return modelMsg, nil
 }
