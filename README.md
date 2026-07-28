@@ -83,7 +83,7 @@ docker compose -f deploy/docker-compose.yml up -d --build
 | 服务 | 内部端口 | 宿主机端口 |
 |------|---------|-----------|
 | 前端 (Nginx) | 80 | 3000 |
-| 后端 | 8080 | —（容器内访问） |
+| 后端 | 8080 | 8081 |
 | MySQL | 3306 | 3307 |
 | Redis | 6379 | 6380 |
 | RabbitMQ | 5672 | 5673 |

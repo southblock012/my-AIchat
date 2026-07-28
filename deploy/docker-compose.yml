@@ -60,6 +60,8 @@ services:
       - OPENAI_BASE_URL=${OPENAI_BASE_URL}
     volumes: 
       - ../config/config.docker.toml:/app/config/config.toml:ro
+    ports:
+      - "8081:8080"
     
   frontend:
     build:
