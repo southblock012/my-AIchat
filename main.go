@@ -7,6 +7,7 @@ import (
 	"my-AIchat/common/mysql"
 	"my-AIchat/common/rabbitmq"
 	"my-AIchat/common/redis"
+	"my-AIchat/common/weaviate"
 	"my-AIchat/config"
 	"my-AIchat/dao/message"
 	"my-AIchat/router"
@@ -53,6 +54,7 @@ func main() {
 	conf := config.GetConfig()
 	host := conf.MainConfig.Host
 	port := conf.MainConfig.Port
+
 	//初始化mysql
 	if err := mysql.InitDB(); err != nil {
 		log.Println("InitMysql error , " + err.Error())
@@ -61,10 +63,15 @@ func main() {
 	//初始化AIHelperManager
 	readDataFromDB()
 
+	//初始化weaviate
+	weaviate.InitWeaviate()
+	log.Println("weaviate init success  ")
+
 	//初始化redis
 	redis.InitRedis()
 	log.Println("redis init success  ")
 
+	//初始化rabbitmq
 	rabbitmq.InitRabbitMQ()
 	log.Println("rabbitmq init success  ")
 	err := StartServer(host, port) // 启动 HTTP 服务

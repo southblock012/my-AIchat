@@ -16,9 +16,6 @@ func InitRouter() *gin.Engine {
 		AIRouter(enterRouter)
 	}
 	{
-		RagRouter(enterRouter)
-	}
-	{
 		ImageRouter(enterRouter)
 	}
 	{

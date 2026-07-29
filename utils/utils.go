@@ -1,9 +1,13 @@
 package utils
 
 import (
+	"fmt"
 	"math/rand"
+	"mime/multipart"
 	"my-AIchat/model"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/cloudwego/eino/schema"
@@ -60,4 +64,19 @@ func ConvertToSchemaMessages(msgs []*model.Message) []*schema.Message {
 		})
 	}
 	return schemaMsgs
+}
+
+// ValidateFile 校验文件是否为允许的文本文件（.md 或 .txt）
+func ValidateFile(file *multipart.FileHeader) error {
+	// 校验文件扩展名
+	ext := strings.ToLower(filepath.Ext(file.Filename))
+	if ext != ".md" && ext != ".txt" {
+		return fmt.Errorf("文件类型不正确，只允许 .md 或 .txt 文件，当前扩展名: %s", ext)
+	}
+	// 校验文件大小
+	if file.Size > 1024*1024*10 { // 10MB
+		return fmt.Errorf("文件大小不能超过 10MB")
+	}
+
+	return nil
 }
