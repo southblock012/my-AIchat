@@ -48,6 +48,24 @@ type RabbitmqConfig struct {
 	RabbitmqVhost    string `toml:"vhost"`
 }
 
+type RedisKeyConfig struct {
+	CaptchaPrefix   string
+	IndexName       string
+	IndexNamePrefix string
+}
+
+type RagModelConfig struct {
+	RagEmbeddingModel string `toml:"embeddingModel"`
+	RagChatModelName  string `toml:"chatModelName"`
+	RagDocDir         string `toml:"docDir"`
+	RagBaseUrl        string `toml:"baseUrl"`
+	RagDimension      int    `toml:"dimension"`
+}
+
+type WeaviateConfig struct {
+	WeaviateHost string `toml:"host"`
+}
+
 // Config 配置结构体(包含所有配置项)
 type Config struct {
 	MainConfig     `toml:"mainConfig"`
@@ -56,12 +74,8 @@ type Config struct {
 	EmailConfig    `toml:"emailConfig"`
 	RedisConfig    `toml:"redisConfig"`
 	RabbitmqConfig `toml:"rabbitmqConfig"`
-}
-
-type RedisKeyConfig struct {
-	CaptchaPrefix   string
-	IndexName       string
-	IndexNamePrefix string
+	RagModelConfig `toml:"ragModelConfig"`
+	WeaviateConfig `toml:"weaviateConfig"`
 }
 
 var DefaultRedisKeyConfig = RedisKeyConfig{

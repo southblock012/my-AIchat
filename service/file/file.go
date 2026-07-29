@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"mime/multipart"
+	"my-AIchat/common/rag"
 	"my-AIchat/config"
 	"my-AIchat/utils"
 	"os"

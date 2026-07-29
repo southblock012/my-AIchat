@@ -5,12 +5,14 @@ import (
 	"math/rand"
 	"mime/multipart"
 	"my-AIchat/model"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/cloudwego/eino/schema"
+	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -78,5 +80,31 @@ func ValidateFile(file *multipart.FileHeader) error {
 		return fmt.Errorf("文件大小不能超过 10MB")
 	}
 
+	return nil
+}
+
+// GenerateUUID 生成UUID
+func GenerateUUID() string {
+	return uuid.New().String()
+}
+
+// RemoveAllFilesInDir 删除目录中的所有文件（不删除子目录）
+func RemoveAllFilesInDir(dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil // 目录不存在就算了
+		}
+		return err
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			filePath := filepath.Join(dir, entry.Name())
+			if err := os.Remove(filePath); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }

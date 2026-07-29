@@ -5,3 +5,4 @@ vue-frontend/node_modules
 /deploy/.env
 /config/config.toml
 /config/config.docker.toml
+RAG_README.md

@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
+	"my-AIchat/common/rag"
+	"my-AIchat/config"
 	"os"
 	"strings"
 
@@ -130,3 +133,135 @@ func (o *OllamaModel) StreamResponse(ctx context.Context, messages []*schema.Mes
 }
 
 func (o *OllamaModel) GetModelType() string { return "ollama" }
+
+// =================== RAG 实现 ===================
+type AliRAGModel struct {
+	llm      model.ToolCallingChatModel
+	username string // 用于获取用户的文档
+}
+
+func NewAliRAGModel(ctx context.Context, username string) (*AliRAGModel, error) {
+	// 聊天走 dashscope（与 embedding 同一供应商，统一用 EMBEDDING_API_KEY）
+	apiKey := os.Getenv("EMBEDDING_API_KEY")
+	conf := config.GetConfig()
+	modelName := conf.RagModelConfig.RagChatModelName
+	baseURL := conf.RagModelConfig.RagBaseUrl
+
+	llm, err := openai.NewChatModel(ctx, &openai.ChatModelConfig{
+		BaseURL: baseURL,
+		Model:   modelName,
+		APIKey:  apiKey,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create rag chat model failed: %v", err)
+	}
+	return &AliRAGModel{
+		llm:      llm,
+		username: username,
+	}, nil
+}
+
+// GenerateResponse 同步生成：先尝试检索用户文档，命中则用 RAG 提示词替换最后一条消息；
+// 用户未上传文档或检索失败时降级为普通对话（不会报错中断）。
+func (o *AliRAGModel) GenerateResponse(ctx context.Context, messages []*schema.Message) (*schema.Message, error) {
+	ragQuery, err := rag.NewRAGQuery(ctx, o.username)
+	if err != nil {
+		// 用户没有上传文档，直接走普通对话
+		log.Printf("RAG: no document for user %s, fallback to normal chat: %v", o.username, err)
+		resp, err := o.llm.Generate(ctx, messages)
+		if err != nil {
+			return nil, fmt.Errorf("rag model generate failed: %v", err)
+		}
+		return resp, nil
+	}
+
+	if len(messages) == 0 {
+		return nil, fmt.Errorf("no messages provided")
+	}
+	lastMessage := messages[len(messages)-1]
+	query := lastMessage.Content
+
+	docs, err := ragQuery.RetrieveDocuments(ctx, query)
+	if err != nil {
+		log.Printf("RAG: retrieve failed, fallback to normal chat: %v", err)
+		resp, err := o.llm.Generate(ctx, messages)
+		if err != nil {
+			return nil, fmt.Errorf("rag model generate failed: %v", err)
+		}
+		return resp, nil
+	}
+
+	ragPrompt := rag.BuildRAGPrompt(query, docs)
+
+	ragMessages := make([]*schema.Message, len(messages))
+	copy(ragMessages, messages)
+	ragMessages[len(ragMessages)-1] = &schema.Message{
+		Role:    schema.User,
+		Content: ragPrompt,
+	}
+
+	resp, err := o.llm.Generate(ctx, ragMessages)
+	if err != nil {
+		return nil, fmt.Errorf("rag model generate failed: %v", err)
+	}
+	return resp, nil
+}
+
+// StreamResponse 流式生成：检索逻辑同 GenerateResponse，命中则替换最后一条消息为 RAG 提示词后流式输出。
+func (o *AliRAGModel) StreamResponse(ctx context.Context, messages []*schema.Message, cb StreamCallback) (string, error) {
+	ragQuery, err := rag.NewRAGQuery(ctx, o.username)
+	if err != nil {
+		log.Printf("RAG: no document for user %s, fallback to normal chat: %v", o.username, err)
+		return o.streamWith(ctx, messages, cb)
+	}
+
+	if len(messages) == 0 {
+		return "", fmt.Errorf("no messages provided")
+	}
+	lastMessage := messages[len(messages)-1]
+	query := lastMessage.Content
+
+	docs, err := ragQuery.RetrieveDocuments(ctx, query)
+	if err != nil {
+		log.Printf("RAG: retrieve failed, fallback to normal chat: %v", err)
+		return o.streamWith(ctx, messages, cb)
+	}
+
+	ragPrompt := rag.BuildRAGPrompt(query, docs)
+	ragMessages := make([]*schema.Message, len(messages))
+	copy(ragMessages, messages)
+	ragMessages[len(ragMessages)-1] = &schema.Message{
+		Role:    schema.User,
+		Content: ragPrompt,
+	}
+
+	return o.streamWith(ctx, ragMessages, cb)
+}
+
+// streamWith 调用底层 LLM 流式输出（带/不带 RAG 提示词共用）。
+func (o *AliRAGModel) streamWith(ctx context.Context, messages []*schema.Message, cb StreamCallback) (string, error) {
+	stream, err := o.llm.Stream(ctx, messages)
+	if err != nil {
+		return "", fmt.Errorf("rag model stream failed: %v", err)
+	}
+	defer stream.Close()
+
+	var fullResp strings.Builder
+	for {
+		msg, err := stream.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return "", fmt.Errorf("rag model stream recv failed: %v", err)
+		}
+		if len(msg.Content) > 0 {
+			fullResp.WriteString(msg.Content)
+			cb(msg.Content)
+		}
+	}
+	return fullResp.String(), nil
+}
+
+// GetModelType 返回工厂注册号 "3"。
+func (o *AliRAGModel) GetModelType() string { return "3" }

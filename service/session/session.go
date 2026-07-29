@@ -49,7 +49,8 @@ func CreateSessionAndSendMessage(userName string, userQuestion string, modelType
 	//2：获取AIHelper并通过其管理消息
 	manager := aihelper.GetGlobalManager()
 	config := map[string]interface{}{
-		"apiKey": "your-api-key", // TODO: 从配置中获取
+		"apiKey":  "your-api-key", // TODO: 从配置中获取
+		"username": userName,      // 供 RAG 模型定位用户上传的文档
 	}
 	helper, err := manager.GetOrCreateAIHelper(userName, createdSession.ID, modelType, config)
 	if err != nil {
@@ -91,7 +92,8 @@ func StreamMessageToExistingSession(userName string, sessionID string, userQuest
 
 	manager := aihelper.GetGlobalManager()
 	config := map[string]interface{}{
-		"apiKey": "your-api-key", // TODO: 从配置中获取
+		"apiKey":  "your-api-key", // TODO: 从配置中获取
+		"username": userName,      // 供 RAG 模型定位用户上传的文档
 	}
 	helper, err := manager.GetOrCreateAIHelper(userName, sessionID, modelType, config)
 	if err != nil {
@@ -148,7 +150,8 @@ func ChatSend(userName string, sessionID string, userQuestion string, modelType 
 	//1：获取AIHelper
 	manager := aihelper.GetGlobalManager()
 	config := map[string]interface{}{
-		"apiKey": "your-api-key", // TODO: 从配置中获取
+		"apiKey":  "your-api-key", // TODO: 从配置中获取
+		"username": userName,      // 供 RAG 模型定位用户上传的文档
 	}
 	helper, err := manager.GetOrCreateAIHelper(userName, sessionID, modelType, config)
 	if err != nil {

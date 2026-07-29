@@ -26,11 +26,18 @@
         <label for="modelType">选择模型：</label>
         <select id="modelType" v-model="selectedModel" class="model-select">
           <option value="1">阿里百炼</option>
+          <option value="3">RAG 文档问答</option>
         </select>
         <label for="streamingMode" style="margin-left: 20px;">
           <input type="checkbox" id="streamingMode" v-model="isStreaming" />
           流式响应
         </label>
+        <button class="upload-btn" @click="triggerUpload" :disabled="uploadLoading">
+          {{ uploadLoading ? '向量化中...' : '上传文档' }}
+        </button>
+        <input type="file" ref="fileInput" @change="handleFileUpload" accept=".txt,.md,.pdf,.doc,.docx" style="display:none" />
+        <span class="upload-status" v-if="uploadedFileName">已上传：{{ uploadedFileName }}</span>
+        <span class="upload-status upload-hint" v-else-if="selectedModel === '3'">RAG 模式请先上传文档</span>
       </div>
 
       <div class="chat-messages" ref="messagesRef">
@@ -91,6 +98,9 @@ export default {
     const messageInput = ref(null)
     const selectedModel = ref('1')
     const isStreaming = ref(false)
+    const fileInput = ref(null)
+    const uploadedFileName = ref('')
+    const uploadLoading = ref(false)
 
 
     const renderMarkdown = (text) => {
@@ -114,6 +124,38 @@ export default {
       } catch (error) {
         console.error('TTS error:', error)
         ElMessage.error('请求语音接口失败')
+      }
+    }
+
+    const triggerUpload = () => {
+      if (fileInput.value) fileInput.value.click()
+    }
+
+    const handleFileUpload = (e) => {
+      const f = e.target.files && e.target.files[0]
+      if (!f) return
+      uploadFile(f)
+      // 允许重复选择同一文件
+      if (fileInput.value) fileInput.value.value = ''
+    }
+
+    const uploadFile = async (file) => {
+      uploadLoading.value = true
+      try {
+        const form = new FormData()
+        form.append('file', file)
+        const res = await api.post('/file/upload', form)
+        if (res.data && res.data.status_code === 1000) {
+          uploadedFileName.value = file.name
+          ElMessage.success('文档已上传并完成向量化')
+        } else {
+          ElMessage.error(res.data?.status_msg || '上传失败')
+        }
+      } catch (err) {
+        console.error('Upload error:', err)
+        ElMessage.error('上传失败，请确认后端 Weaviate 与 embedding 配置')
+      } finally {
+        uploadLoading.value = false
       }
     }
 
@@ -481,7 +523,13 @@ export default {
       createNewSession,
       switchSession,
       syncHistory,
-      sendMessage
+      sendMessage,
+      fileInput,
+      uploadLoading,
+      uploadedFileName,
+      triggerUpload,
+      handleFileUpload,
+      uploadFile
     }
   }
 }
@@ -677,6 +725,43 @@ export default {
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
+}
+
+.upload-btn {
+  margin-left: 16px;
+  padding: 8px 14px;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: white;
+  background: linear-gradient(135deg, #909399 0%, #606266 100%);
+  box-shadow: 0 4px 12px rgba(144, 147, 153, 0.2);
+  transition: all 0.2s ease;
+}
+
+.upload-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(144, 147, 153, 0.3);
+}
+
+.upload-btn:disabled {
+  background: #ccc;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.upload-status {
+  margin-left: 10px;
+  font-size: 12px;
+  color: #67c23a;
+  font-weight: 600;
+}
+
+.upload-hint {
+  color: #e6a23c;
+  font-weight: 500;
 }
 
 .chat-messages {
