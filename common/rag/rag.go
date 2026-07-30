@@ -3,6 +3,7 @@ package rag
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"strings"
 
@@ -206,15 +207,20 @@ func (r *RAGQuery) RetrieveDocuments(ctx context.Context, query string) ([]*sche
 		return nil, fmt.Errorf("failed to embed query: %w", err)
 	}
 	queryVector := vectors[0]
+	log.Printf("[RAG] query vector dim=%d, class=%s", len(queryVector), r.className)
 
 	resp, err := r.client.GraphQL().Get().
 		WithClassName(r.className).
 		WithFields(
 			wvgql.Field{Name: "content"},
 			wvgql.Field{Name: "source"},
-			wvgql.Field{Name: "_additional", Fields: []wvgql.Field{{Name: "distance"}}},
+			wvgql.Field{Name: "_additional", Fields: []wvgql.Field{
+				{Name: "id"},
+				{Name: "distance"},
+				{Name: "vector"},
+			}},
 		).
-		WithNearVector(r.client.GraphQL().NearVectorArgBuilder().WithVector(queryVector)).
+		WithNearVector(r.client.GraphQL().NearVectorArgBuilder().WithVector(toFloat32Slice(queryVector))).
 		WithLimit(5).
 		Do(ctx)
 	if err != nil {
@@ -223,10 +229,23 @@ func (r *RAGQuery) RetrieveDocuments(ctx context.Context, query string) ([]*sche
 	return parseGraphQLResponse(resp, r.className)
 }
 
+// keysOf 取出 map 的 key 列表，用于把 Get 下实际存在的 class 名打到日志里辅助排查。
+func keysOf(m map[string]interface{}) []string {
+	ks := make([]string, 0, len(m))
+	for k := range m {
+		ks = append(ks, k)
+	}
+	return ks
+}
+
 // parseGraphQLResponse 把 Weaviate GraphQL 返回的 JSON 结构解析成 eino 的 Document 列表。
 func parseGraphQLResponse(resp *wvmodels.GraphQLResponse, className string) ([]*schema.Document, error) {
 	if resp == nil {
 		return nil, fmt.Errorf("empty weaviate response")
+	}
+	if len(resp.Errors) > 0 {
+		log.Printf("[RAG] weaviate graphql errors: %+v", resp.Errors)
+		return nil, fmt.Errorf("weaviate graphql error: %v", resp.Errors[0].Message)
 	}
 	data := resp.Data
 	if data == nil {
@@ -238,10 +257,15 @@ func parseGraphQLResponse(resp *wvmodels.GraphQLResponse, className string) ([]*
 	}
 	items, ok := get[className].([]interface{})
 	if !ok {
+		// 关键诊断：把 Get 下实际存在的 class 名打出来，确认是否 class 名不一致导致"no class"
+		log.Printf("[RAG] no class %s in Get response; available classes=%v", className, keysOf(get))
 		return nil, fmt.Errorf("no class %s in response", className)
 	}
 
 	docs := make([]*schema.Document, 0, len(items))
+	ids := make([]string, 0, len(items))
+	dists := make([]float64, 0, len(items))
+	classVecDim := 0
 	for _, it := range items {
 		obj, ok := it.(map[string]interface{})
 		if !ok {
@@ -249,11 +273,23 @@ func parseGraphQLResponse(resp *wvmodels.GraphQLResponse, className string) ([]*
 		}
 		content, _ := obj["content"].(string)
 		source, _ := obj["source"].(string)
+		additional, _ := obj["_additional"].(map[string]interface{})
+		id, _ := additional["id"].(string)
+		dist, _ := additional["distance"].(float64)
+		// 取一个召回对象的向量长度作为 class 的向量维度（用于核对是否与查询向量维度一致）
+		if vec, ok := additional["vector"].([]interface{}); ok && classVecDim == 0 {
+			classVecDim = len(vec)
+		}
+		if id != "" {
+			ids = append(ids, id)
+			dists = append(dists, dist)
+		}
 		docs = append(docs, &schema.Document{
 			Content:  content,
-			MetaData: map[string]any{"source": source},
+			MetaData: map[string]any{"source": source, "id": id},
 		})
 	}
+	log.Printf("[RAG] retrieved %d docs; classVectorDim=%d; ids=%v; distances=%v", len(docs), classVecDim, ids, dists)
 	return docs, nil
 }
 
