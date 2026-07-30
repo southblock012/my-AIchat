@@ -29,9 +29,13 @@ type RAGIndexer struct {
 // RAGQuery 知识库检索器：负责把问题向量化并在 Weaviate 中做相似度检索。
 // 对应参考项目里的 redisRetriever。
 type RAGQuery struct {
-	embedder  embedding.Embedder
-	client    *wv.Client
-	className string
+	embedder    embedding.Embedder
+	client      *wv.Client
+	className   string
+	reranker    *DashScopeReranker // 可选：eino 重排器；nil 时退化为纯混合检索
+	hybridAlpha float64            // 混合检索 alpha：0=纯关键词(BM25)，1=纯向量，默认 0.5
+	retrieveK   int                // 混合检索候选数（重排前召回量），默认 20
+	rerankTopK  int                // 重排后最终返回条数，默认 5
 }
 
 // getClient 返回全局 Weaviate 客户端；若尚未初始化则惰性初始化。
@@ -168,18 +172,9 @@ func DeleteIndex(ctx context.Context, filename string) error {
 	return nil
 }
 
-// NewRAGQuery 构建检索器：找到该用户已上传的文件，定位对应的 Weaviate class。
+// NewRAGQuery 构建检索器：从 uploads/<username> 目录找到用户上传的文件，定位对应的 Weaviate class。
 // 任一步失败（没上传文件等）返回 error，上层据此降级为普通对话。
 func NewRAGQuery(ctx context.Context, username string) (*RAGQuery, error) {
-	emb, err := newEmbedder(ctx, config.GetConfig().RagModelConfig.RagEmbeddingModel)
-	if err != nil {
-		return nil, err
-	}
-	client := getClient()
-	if client == nil {
-		return nil, fmt.Errorf("weaviate client is nil, check InitWeaviate")
-	}
-
 	userDir := fmt.Sprintf("uploads/%s", username)
 	files, err := os.ReadDir(userDir)
 	if err != nil || len(files) == 0 {
@@ -197,7 +192,63 @@ func NewRAGQuery(ctx context.Context, username string) (*RAGQuery, error) {
 	}
 
 	className := GenerateClassName(filename)
-	return &RAGQuery{embedder: emb, client: client, className: className}, nil
+	return newRAGQuery(ctx, className)
+}
+
+// NewRAGQueryWithClass 直接以指定的 class 名构建检索器（测试或自定义场景用，不依赖 uploads 目录）。
+func NewRAGQueryWithClass(ctx context.Context, className string) (*RAGQuery, error) {
+	return newRAGQuery(ctx, className)
+}
+
+// newRAGQuery 公共构造逻辑：建立 embedder、client，并按配置初始化混合检索参数与（可选的）eino 重排器。
+func newRAGQuery(ctx context.Context, className string) (*RAGQuery, error) {
+	emb, err := newEmbedder(ctx, config.GetConfig().RagModelConfig.RagEmbeddingModel)
+	if err != nil {
+		return nil, err
+	}
+	client := getClient()
+	if client == nil {
+		return nil, fmt.Errorf("weaviate client is nil, check InitWeaviate")
+	}
+
+	cfg := config.GetConfig().RagModelConfig
+	alpha := cfg.RagHybridAlpha
+	if alpha == 0 {
+		alpha = 0.5
+	}
+	retrieveK := cfg.RagRetrieveK
+	if retrieveK == 0 {
+		retrieveK = 20
+	}
+	topN := cfg.RagRerankTopK
+	if topN == 0 {
+		topN = 5
+	}
+
+	// 仅当配置了 rerankModel 才启用 eino 重排；否则退化为纯混合检索。
+	var rr *DashScopeReranker
+	if cfg.RagRerankModel != "" {
+		if r, e := NewDashScopeReranker(ctx, &dashScopeRerankerConfig{
+			APIKey:  os.Getenv("EMBEDDING_API_KEY"),
+			Model:   cfg.RagRerankModel,
+			BaseURL: cfg.RagRerankBaseUrl,
+			TopN:    topN,
+		}); e == nil {
+			rr = r
+		} else {
+			log.Printf("[RAG] reranker init failed, continue without rerank: %v", e)
+		}
+	}
+
+	return &RAGQuery{
+		embedder:    emb,
+		client:      client,
+		className:   className,
+		reranker:    rr,
+		hybridAlpha: alpha,
+		retrieveK:   retrieveK,
+		rerankTopK:  topN,
+	}, nil
 }
 
 // RetrieveDocuments 把问题向量化，并在 Weaviate 中做相似度检索，返回 Top5 文档块。
@@ -225,6 +276,68 @@ func (r *RAGQuery) RetrieveDocuments(ctx context.Context, query string) ([]*sche
 		Do(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve: %w", err)
+	}
+	return parseGraphQLResponse(resp, r.className)
+}
+
+// RetrieveDocumentsEnhanced 增强检索（生产路径使用）：
+// 1) 混合检索（BM25 关键词 + 向量 ANN，按 alpha 融合）扩大候选集到 retrieveK；
+// 2) 若配置了 eino 重排器，对候选集用 cross-encoder 精排，返回 rerankTopK 条；
+// 3) 未配置重排时，直接返回混合检索的前 rerankTopK 条。
+func (r *RAGQuery) RetrieveDocumentsEnhanced(ctx context.Context, query string) ([]*schema.Document, error) {
+	vectors, err := r.embedder.EmbedStrings(ctx, []string{query})
+	if err != nil {
+		return nil, fmt.Errorf("failed to embed query: %w", err)
+	}
+	queryVector := vectors[0]
+	log.Printf("[RAG][enhanced] query vector dim=%d, class=%s, alpha=%.2f, retrieveK=%d, rerank=%v",
+		len(queryVector), r.className, r.hybridAlpha, r.retrieveK, r.reranker != nil)
+
+	candidates, err := r.hybridRetrieve(ctx, query, toFloat32Slice(queryVector), r.retrieveK)
+	if err != nil {
+		return nil, err
+	}
+	if len(candidates) == 0 {
+		return candidates, nil
+	}
+
+	if r.reranker != nil {
+		return r.reranker.Rerank(ctx, query, candidates)
+	}
+	if len(candidates) > r.rerankTopK {
+		return candidates[:r.rerankTopK], nil
+	}
+	return candidates, nil
+}
+
+// hybridRetrieve 在 Weaviate 上做 hybrid 检索：query 文本驱动 BM25，queryVector 驱动向量 ANN，
+// 二者按 alpha 融合，返回 limit 条候选文档。对应你要求的「混合检索用法B」（走 Weaviate 原生 hybrid 参数）。
+func (r *RAGQuery) hybridRetrieve(ctx context.Context, query string, queryVector []float32, limit int) ([]*schema.Document, error) {
+	if limit <= 0 {
+		limit = 5
+	}
+	hb := r.client.GraphQL().HybridArgumentBuilder().
+		WithQuery(query).
+		WithVector(queryVector).
+		WithAlpha(float32(r.hybridAlpha))
+
+	resp, err := r.client.GraphQL().Get().
+		WithClassName(r.className).
+		WithFields(
+			wvgql.Field{Name: "content"},
+			wvgql.Field{Name: "source"},
+			wvgql.Field{Name: "_additional", Fields: []wvgql.Field{
+				{Name: "id"},
+				{Name: "distance"},
+				{Name: "score"},
+				{Name: "vector"},
+			}},
+		).
+		WithHybrid(hb).
+		WithLimit(limit).
+		Do(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to hybrid retrieve: %w", err)
 	}
 	return parseGraphQLResponse(resp, r.className)
 }
@@ -276,6 +389,12 @@ func parseGraphQLResponse(resp *wvmodels.GraphQLResponse, className string) ([]*
 		additional, _ := obj["_additional"].(map[string]interface{})
 		id, _ := additional["id"].(string)
 		dist, _ := additional["distance"].(float64)
+		if dist == 0 {
+			// hybrid 检索下 _additional.distance 通常为 0，改用综合分 score 显示，避免日志出现 [0 0 0] 误导
+			if s, ok := additional["score"].(float64); ok && s != 0 {
+				dist = s
+			}
+		}
 		// 取一个召回对象的向量长度作为 class 的向量维度（用于核对是否与查询向量维度一致）
 		if vec, ok := additional["vector"].([]interface{}); ok && classVecDim == 0 {
 			classVecDim = len(vec)

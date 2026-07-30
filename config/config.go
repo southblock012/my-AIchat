@@ -60,6 +60,12 @@ type RagModelConfig struct {
 	RagDocDir         string `toml:"docDir"`
 	RagBaseUrl        string `toml:"baseUrl"`
 	RagDimension      int    `toml:"dimension"`
+	// 增强检索配置（混合检索 + 重排）
+	RagHybridAlpha float64 `toml:"hybridAlpha"` // 混合检索中向量 vs 关键词权重：0=纯关键词(BM25)，1=纯向量，默认 0.5
+	RagRetrieveK   int     `toml:"retrieveK"`   // 混合检索候选数（重排前的召回量），默认 20
+	RagRerankTopK  int     `toml:"rerankTopK"`  // 重排后最终返回条数，默认 5
+	RagRerankModel string  `toml:"rerankModel"` // 重排模型；非空时启用 eino 重排，默认 gte-rerank
+	RagRerankBaseUrl string `toml:"rerankBaseUrl"` // 重排服务地址；留空用百炼默认地址
 }
 
 type WeaviateConfig struct {

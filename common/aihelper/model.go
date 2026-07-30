@@ -181,7 +181,7 @@ func (o *AliRAGModel) GenerateResponse(ctx context.Context, messages []*schema.M
 	lastMessage := messages[len(messages)-1]
 	query := lastMessage.Content
 
-	docs, err := ragQuery.RetrieveDocuments(ctx, query)
+	docs, err := ragQuery.RetrieveDocumentsEnhanced(ctx, query)
 	if err != nil {
 		log.Printf("RAG: retrieve failed, fallback to normal chat: %v", err)
 		resp, err := o.llm.Generate(ctx, messages)
@@ -221,7 +221,7 @@ func (o *AliRAGModel) StreamResponse(ctx context.Context, messages []*schema.Mes
 	lastMessage := messages[len(messages)-1]
 	query := lastMessage.Content
 
-	docs, err := ragQuery.RetrieveDocuments(ctx, query)
+	docs, err := ragQuery.RetrieveDocumentsEnhanced(ctx, query)
 	if err != nil {
 		log.Printf("RAG: retrieve failed, fallback to normal chat: %v", err)
 		return o.streamWith(ctx, messages, cb)
