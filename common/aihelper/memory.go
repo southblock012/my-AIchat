@@ -94,18 +94,81 @@ func isValidCategory(c string) bool {
 	return false
 }
 
+// parseExtractJSON 从 LLM 返回文本中抽取记忆条目。
+// LLM 不一定只输出纯净 JSON：可能在 JSON 前后夹带解释文字，或开头混入无效字符（如日志里的 'æ'）。
+// 这里不假设整段就是 JSON，而是用括号配对从文本里切出第一个完整的 [...] 或 {...} 子串再解析，
+// 避免 "looking for beginning of value" 这类因前后干扰字符导致的解析失败。
 func parseExtractJSON(raw string) []extractItem {
-	s := strings.TrimSpace(raw)
-	s = strings.TrimPrefix(s, "```json")
-	s = strings.TrimPrefix(s, "```")
-	s = strings.TrimSuffix(s, "```")
-	s = strings.TrimSpace(s)
-	var items []extractItem
-	if err := json.Unmarshal([]byte(s), &items); err != nil {
-		log.Println("[memory] parse json failed:", err)
+	sub := extractJSONSubstring(raw)
+	if sub == "" {
+		if strings.TrimSpace(raw) != "" {
+			log.Println("[memory] parse json failed: model output contains no JSON array/object")
+		}
 		return nil
 	}
-	return items
+	var items []extractItem
+	if err := json.Unmarshal([]byte(sub), &items); err == nil {
+		return items
+	}
+	// 兼容模型只返回单个对象（而非数组）的情况
+	var single extractItem
+	if err := json.Unmarshal([]byte(sub), &single); err == nil && strings.TrimSpace(single.Content) != "" {
+		return []extractItem{single}
+	}
+	log.Println("[memory] parse json failed: extracted substring is not valid JSON")
+	return nil
+}
+
+// extractJSONSubstring 从文本中切出第一个完整的 JSON 值（数组或对象）。
+// 通过括号深度配对识别边界，并正确跳过字符串字面量内部的括号与转义，避免误判。
+// 找不到则返回空串（调用方据此优雅降级，不崩溃）。
+func extractJSONSubstring(s string) string {
+	start := -1
+	var open, closeB byte
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '[':
+			open, closeB, start = '[', ']', i
+		case '{':
+			open, closeB, start = '{', '}', i
+		}
+		if start >= 0 {
+			break
+		}
+	}
+	if start < 0 {
+		return ""
+	}
+	depth := 0
+	inStr := false
+	esc := false
+	for i := start; i < len(s); i++ {
+		c := s[i]
+		if esc {
+			esc = false
+			continue
+		}
+		switch c {
+		case '\\':
+			esc = true
+		case '"':
+			inStr = !inStr
+		default:
+			if inStr {
+				continue
+			}
+			switch c {
+			case open:
+				depth++
+			case closeB:
+				depth--
+				if depth == 0 {
+					return s[start : i+1]
+				}
+			}
+		}
+	}
+	return ""
 }
 
 // BuildMemorySystemMessage 检索用户长期记忆，拼成 system message；无记忆返回 nil

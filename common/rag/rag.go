@@ -49,6 +49,29 @@ func getClient() *wv.Client {
 // newEmbedder 构造一个 OpenAI 兼容的 embedding 客户端。
 // 你的配置指向 dashscope（baseUrl=https://dashscope.aliyuncs.com/compatible-mode/v1），
 // 所以这里天然兼容通义千问的 text-embedding-v4。换成 OpenAI 也只需改配置。
+// embeddingBatchSize 是 DashScope text-embedding-v4 单次请求的 contents 上限（超过返回 400）。
+const embeddingBatchSize = 10
+
+// embedInBatches 分批调用 embedding，避开 DashScope 单次 input.contents 上限 10 条的限制。
+func embedInBatches(ctx context.Context, emb embedding.Embedder, texts []string) ([][]float64, error) {
+	if len(texts) == 0 {
+		return nil, nil
+	}
+	out := make([][]float64, 0, len(texts))
+	for start := 0; start < len(texts); start += embeddingBatchSize {
+		end := start + embeddingBatchSize
+		if end > len(texts) {
+			end = len(texts)
+		}
+		vs, err := emb.EmbedStrings(ctx, texts[start:end])
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, vs...)
+	}
+	return out, nil
+}
+
 func newEmbedder(ctx context.Context, model string) (embedding.Embedder, error) {
 	cfg := config.GetConfig().RagModelConfig
 	apikey := os.Getenv("EMBEDDING_API_KEY")
@@ -133,7 +156,7 @@ func (r *RAGIndexer) IndexFile(ctx context.Context, filePath string) error {
 		return fmt.Errorf("file content is empty")
 	}
 
-	vectors, err := r.embedder.EmbedStrings(ctx, chunks)
+	vectors, err := embedInBatches(ctx, r.embedder, chunks)
 	if err != nil {
 		return fmt.Errorf("failed to embed chunks: %w", err)
 	}
@@ -153,8 +176,15 @@ func (r *RAGIndexer) IndexFile(ctx context.Context, filePath string) error {
 		})
 	}
 
-	if _, err := r.client.Batch().ObjectsBatcher().WithObjects(objs...).Do(ctx); err != nil {
-		return fmt.Errorf("failed to batch insert: %w", err)
+	const weaviateBatchSize = 100
+	for start := 0; start < len(objs); start += weaviateBatchSize {
+		end := start + weaviateBatchSize
+		if end > len(objs) {
+			end = len(objs)
+		}
+		if _, err := r.client.Batch().ObjectsBatcher().WithObjects(objs[start:end]...).Do(ctx); err != nil {
+			return fmt.Errorf("failed to batch insert: %w", err)
+		}
 	}
 	return nil
 }

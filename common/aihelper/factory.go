@@ -55,6 +55,12 @@ func (f *AIModelFactory) registerCreators() {
 		}
 		return NewAliRAGModel(ctx, username)
 	}
+
+	//自然语言查库模型（外部 MySQL：检索 → 生成 SQL → 执行 → 总结）
+	f.creators["4"] = func(ctx context.Context, config map[string]interface{}) (AIModel, error) {
+		username, _ := config["username"].(string) // DB 查询与用户无关，但保留用于日志/扩展
+		return NewExternalQueryModel(ctx, username)
+	}
 }
 
 // CreateAIModel 根据类型创建 AI 模型

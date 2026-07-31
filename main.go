@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"my-AIchat/common/aihelper"
+	"my-AIchat/common/dbquery"
 	"my-AIchat/common/mysql"
 	"my-AIchat/common/rabbitmq"
 	"my-AIchat/common/redis"
@@ -59,6 +61,17 @@ func main() {
 	if err := mysql.InitDB(); err != nil {
 		log.Println("InitMysql error , " + err.Error())
 		return
+	}
+	//初始化外部数据库（自然语言查库目标库）：独立连接，失败不阻断主流程
+	if err := mysql.InitExternalDB(); err != nil {
+		log.Println("[externalDB] init failed (查库功能不可用): " + err.Error())
+	} else if mysql.ExternalDB != nil {
+		// best-effort 预热 schema 缓存（含 LLM 含义补全，只发生一次），放后台避免拖慢启动
+		go func() {
+			if err := dbquery.InitCatalog(context.Background()); err != nil {
+				log.Printf("[dbquery] catalog 预热失败(后续查询时按需重建): %v", err)
+			}
+		}()
 	}
 	//初始化AIHelperManager
 	readDataFromDB()

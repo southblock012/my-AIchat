@@ -63,6 +63,17 @@ func NewDashScopeReranker(ctx context.Context, cfg *dashScopeRerankerConfig) (*D
 	return &DashScopeReranker{apiKey: apiKey, model: model, baseURL: baseURL, topN: topN}, nil
 }
 
+// NewDashScopeRerankerWithParams 给其它包（如 common/dbquery）用的导出便捷封装：
+// 用平铺参数构造百炼重排器，内部仍走 NewDashScopeReranker，保持实现单一、避免重复。
+func NewDashScopeRerankerWithParams(ctx context.Context, apiKey, model, baseURL string, topN int) (*DashScopeReranker, error) {
+	return NewDashScopeReranker(ctx, &dashScopeRerankerConfig{
+		APIKey:  apiKey,
+		Model:   model,
+		BaseURL: baseURL,
+		TopN:    topN,
+	})
+}
+
 // Rerank 对候选文档用 query 做精排，返回重排后的前 topN 条。
 // 这是给检索链路直接调用的便捷方法（Transformer 接口本身不带 query，query 在这里注入）。
 func (r *DashScopeReranker) Rerank(ctx context.Context, query string, docs []*schema.Document) ([]*schema.Document, error) {

@@ -27,17 +27,19 @@
         <select id="modelType" v-model="selectedModel" class="model-select">
           <option value="1">阿里百炼</option>
           <option value="3">RAG 文档问答</option>
+          <option value="4">自然语言查数据库</option>
         </select>
         <label for="streamingMode" style="margin-left: 20px;">
           <input type="checkbox" id="streamingMode" v-model="isStreaming" />
           流式响应
         </label>
-        <button class="upload-btn" @click="triggerUpload" :disabled="uploadLoading">
+        <button class="upload-btn" @click="triggerUpload" :disabled="uploadLoading" v-if="selectedModel === '3'">
           {{ uploadLoading ? '向量化中...' : '上传文档' }}
         </button>
-        <input type="file" ref="fileInput" @change="handleFileUpload" accept=".txt,.md,.pdf,.doc,.docx" style="display:none" />
+        <input type="file" ref="fileInput" @change="handleFileUpload" accept=".txt,.md,.pdf,.doc,.docx" style="display:none" v-if="selectedModel === '3'" />
         <span class="upload-status" v-if="uploadedFileName">已上传：{{ uploadedFileName }}</span>
         <span class="upload-status upload-hint" v-else-if="selectedModel === '3'">RAG 模式请先上传文档</span>
+        <span class="upload-status upload-hint nl2sql-hint" v-else-if="selectedModel === '4'">NL2SQL 模式：用自然语言查询数据库（无需上传文档）</span>
       </div>
 
       <div class="chat-messages" ref="messagesRef">
@@ -58,7 +60,7 @@
       <div class="chat-input">
         <textarea
           v-model="inputMessage"
-          placeholder="请输入你的问题..."
+          :placeholder="inputPlaceholder"
           @keydown.enter.exact.prevent="sendMessage"
           :disabled="loading"
           ref="messageInput"
@@ -103,14 +105,34 @@ export default {
     const uploadLoading = ref(false)
 
 
+    const escapeHtml = (s) => {
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+    }
+
     const renderMarkdown = (text) => {
       if (!text && text !== '') return ''
-      return String(text)
-        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-        .replace(/\*(.*?)\*/g, '<em>$1</em>')
-        .replace(/`(.*?)`/g, '<code>$1</code>')
-        .replace(/\n/g, '<br>')
+      let html = String(text)
+      // 代码块 ```lang\n...\n``` 先行处理（避免内部字符被其余规则破坏）
+      html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (m, lang, code) => {
+        return '<pre class="md-code-block"><code>' + escapeHtml(code.replace(/\n$/, '')) + '</code></pre>'
+      })
+      html = html.replace(/`([^`]+)`/g, (m, code) => '<code class="md-inline-code">' + escapeHtml(code) + '</code>')
+      html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+      html = html.replace(/\*(.*?)\*/g, '<em>$1</em>')
+      html = html.replace(/\n/g, '<br>')
+      return html
     }
+
+    // 根据当前模型动态切换输入框占位提示
+    const inputPlaceholder = computed(() => {
+      if (selectedModel.value === '4') return '用自然语言描述你想查的数据，例如：最近注册的 10 个用户'
+      if (selectedModel.value === '3') return '请先上传文档，再提问（RAG 模式）'
+      return '请输入你的问题...'
+    })
 
     const playTTS = async (text) => {
       try {
@@ -513,6 +535,7 @@ export default {
       tempSession,
       currentMessages,
       inputMessage,
+      inputPlaceholder,
       loading,
       messagesRef,
       messageInput,
@@ -762,6 +785,37 @@ export default {
 .upload-hint {
   color: #e6a23c;
   font-weight: 500;
+}
+
+.nl2sql-hint {
+  color: #409eff;
+  font-weight: 500;
+}
+
+/* NL2SQL 流式返回的 SQL 代码块 & 行内代码 */
+.md-code-block {
+  background: #282c34;
+  color: #abb2bf;
+  padding: 12px 14px;
+  border-radius: 10px;
+  overflow-x: auto;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 8px 0;
+}
+
+.md-code-block code {
+  white-space: pre;
+}
+
+.md-inline-code {
+  background: rgba(64, 158, 255, 0.12);
+  color: #409eff;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 13px;
 }
 
 .chat-messages {
