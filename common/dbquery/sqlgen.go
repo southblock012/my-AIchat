@@ -24,6 +24,27 @@ var allowedSQLPrefix = regexp.MustCompile(`(?i)^\s*(SELECT|SHOW|DESCRIBE|DESC|WI
 // hasLimitClause 判断 SQL 是否已有 LIMIT。
 var hasLimitClause = regexp.MustCompile(`(?i)\blimit\s+\d+`)
 
+// blockCommentRe / lineCommentRe 用于护栏前去除 SQL 注释（避免模型夹带的注释干扰白名单校验）。
+var blockCommentRe = regexp.MustCompile(`(?s)/\*.*?\*/`)
+var lineCommentRe = regexp.MustCompile(`(?m)(^|\s)--[^\n]*`)
+
+// writeSQLPrefix 检测写操作首关键字；命中说明是危险写操作，应硬拒绝而非友好拒绝。
+var writeSQLPrefix = regexp.MustCompile(`(?i)^\s*(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE|CREATE|REPLACE|GRANT|REVOKE|MERGE|RENAME)\b`)
+
+// NoSQLError 表示模型未生成任何可执行的 SQL（通常是判定该问题无法用查询回答，
+// 仅输出了一行 SQL 注释或解释性文字说明原因）。这是「友好拒绝」而非「危险 SQL」，
+// 上层应转成提示文案而非当作执行错误。
+type NoSQLError struct {
+	Reason string
+}
+
+func (e *NoSQLError) Error() string {
+	if e.Reason != "" {
+		return "模型未生成可执行 SQL：" + e.Reason
+	}
+	return "模型未生成可执行 SQL"
+}
+
 // GenerateSQL 调用 LLM 把自然语言问题转成 SQL（返回带 ```sql 围栏的原始文本）。
 // schemaText 来自 SchemaPromptText，只暴露相关表结构，不暴露行数据。
 func GenerateSQL(ctx context.Context, llm chatModel, question, schemaText string) (string, error) {
@@ -34,7 +55,7 @@ func GenerateSQL(ctx context.Context, llm chatModel, question, schemaText string
 1. 只能生成只读查询：SELECT / SHOW / DESCRIBE / WITH / EXPLAIN。绝不允许 INSERT/UPDATE/DELETE/DROP/ALTER/TRUNCATE 等写操作。
 2. 只使用上方给出的表与字段，不要臆造不存在的表或列。
 3. 只输出一个 SQL 语句，用 ` + "```sql" + ` 代码块包裹，不要任何解释性文字。
-4. 若问题无法用给定表结构回答，输出 ` + "```sql" + ` 注释说明无法回答的原因。`
+4. 若问题明显与给定表结构无关（例如涉及记忆、闲聊、或非数据查询），请只输出一个仅含一行 SQL 注释的 ` + "```sql" + ` 代码块说明无法回答的原因，例如一行 "-- 该问题无法通过查询数据库回答"，不要输出任何查询语句。`
 
 	user := fmt.Sprintf("相关表结构：\n%s\n\n用户问题：%s\n\n请生成 SQL：", schemaText, question)
 
@@ -61,8 +82,14 @@ func SanitizeSQL(raw string, maxRows int) (string, error) {
 	}
 	sql := extractSQL(raw)
 	sql = strings.TrimSpace(sql)
+
+	// 去除 SQL 注释（行注释 -- 与块注释 /* */），避免模型夹带的注释干扰白名单校验；
+	// 同时把「仅注释」场景下的可读说明提取出来，用于友好拒绝。
+	refusal := extractRefusalReason(sql)
+	sql = stripSQLComments(sql)
+	sql = strings.TrimSpace(sql)
 	if sql == "" {
-		return "", fmt.Errorf("SQL 为空")
+		return "", &NoSQLError{Reason: refusal}
 	}
 
 	// 去除可能存在的尾部分号，便于后续统一判断
@@ -74,7 +101,11 @@ func SanitizeSQL(raw string, maxRows int) (string, error) {
 
 	// 白名单前缀校验
 	if !allowedSQLPrefix.MatchString(sqlNoSemi) {
-		return "", fmt.Errorf("拒绝执行：只允许只读查询(SELECT/SHOW/DESCRIBE/WITH/EXPLAIN)，得到: %s", truncate(sqlNoSemi, 60))
+		// 不是只读查询：区分「危险写操作」(硬拒绝) 与「根本不是 SQL」(模型拒绝/乱言，友好拒绝)
+		if writeSQLPrefix.MatchString(sqlNoSemi) {
+			return "", fmt.Errorf("拒绝执行：检测到写操作，仅允许只读查询(SELECT/SHOW/DESCRIBE/WITH/EXPLAIN)")
+		}
+		return "", &NoSQLError{Reason: refusalOrSnippet(raw)}
 	}
 
 	// 对 SELECT / WITH 强制 LIMIT（SHOW/DESCRIBE/EXPLAIN 不加）
@@ -119,11 +150,53 @@ func FixSQL(ctx context.Context, llm chatModel, question, schemaText, badSQL str
 // extractSQL 从 LLM 返回文本中提取 ```sql ... ```（或 ``` ... ```）代码块内容；
 // 若无围栏则原样返回（容错）。
 func extractSQL(raw string) string {
-	re := regexp.MustCompile("(?is)```(?:sql)?\\s*(.*?)```")
+	// 模式含 ``` 反引号，无法整体写原始字符串；把反引号围栏单独拼接
+	re := regexp.MustCompile(`(?is)` + "```" + `(?:sql)?\s*(.*?)` + "```")
 	if m := re.FindStringSubmatch(raw); m != nil {
 		return m[1]
 	}
 	return raw
+}
+
+// stripSQLComments 去除 SQL 注释：块注释 /* ... */ 与行注释 -- ...（行注释仅当位于行首或空白后，
+// 避免误删字符串字面量内部的 '--'）。
+func stripSQLComments(s string) string {
+	s = blockCommentRe.ReplaceAllString(s, " ")
+	s = lineCommentRe.ReplaceAllString(s, "$1")
+	return s
+}
+
+// extractRefusalReason 从模型「仅注释」输出里取出可读的拒绝说明（去掉 -- / # 前缀与围栏）。
+func extractRefusalReason(s string) string {
+	s = blockCommentRe.ReplaceAllString(s, " ")
+	lines := strings.Split(s, "\n")
+	var parts []string
+	for _, ln := range lines {
+		ln = strings.TrimSpace(ln)
+		if strings.HasPrefix(ln, "--") {
+			ln = strings.TrimSpace(strings.TrimPrefix(ln, "--"))
+		} else if strings.HasPrefix(ln, "#") {
+			ln = strings.TrimSpace(strings.TrimPrefix(ln, "#"))
+		}
+		if ln != "" {
+			parts = append(parts, ln)
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+// refusalOrSnippet 取可读拒绝文案：优先用注释里的说明，否则截取原始输出的前若干字符。
+func refusalOrSnippet(raw string) string {
+	if r := extractRefusalReason(extractSQL(raw)); r != "" {
+		return r
+	}
+	s := strings.TrimSpace(raw)
+	s = strings.ReplaceAll(s, "\n", " ")
+	runes := []rune(s)
+	if len(runes) > 60 {
+		return string(runes[:60]) + "..."
+	}
+	return s
 }
 
 func truncate(s string, n int) string {

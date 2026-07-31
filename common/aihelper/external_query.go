@@ -2,6 +2,7 @@ package aihelper
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -26,7 +27,7 @@ import (
 //	用户问题 → 相关表检索(Weaviate混合+重排/关键词兜底) → 生成 SQL(LLM)
 //	         → 只读护栏(SanitizeSQL) → 执行(Executor) → 失败自愈 → LLM 总结成自然语言
 //
-// 复用：DashScope chat 模型（与 RAG 同款、同密钥）、mysql.ExternalDB 连接、dbquery 包的全部能力。
+// 复用：Deepseek chat 模型、mysql.ExternalDB 连接、dbquery 包的全部能力。
 type ExternalQueryModel struct {
 	llm      einomodel.ToolCallingChatModel
 	username string
@@ -171,6 +172,17 @@ func (o *ExternalQueryModel) run(ctx context.Context, messages []*schema.Message
 	// 2) 生成 SQL → 3) 执行(含自愈)
 	sql, resultText, runErr := dbquery.RunQuery(ctx, o.llm, mysql.ExternalDB, question, schemaText, topK, maxRows)
 	if runErr != nil {
+		// 模型判定该问题无法用查询回答（通常是不属于数据库查询的问题，如记忆/闲聊）：
+		// 这是「友好拒绝」而非执行错误，转成提示文案，不让用户看到晦涩的护栏报错。
+		var noSQL *dbquery.NoSQLError
+		if errors.As(runErr, &noSQL) {
+			reason := noSQL.Reason
+			if reason == "" {
+				reason = "该问题无法通过查询数据库来回答"
+			}
+			log.Printf("[external_query] 模型判定非数据库查询: %s", reason)
+			return "", fmt.Sprintf("这个问题不是关于数据库的查询，我无法用 SQL 回答。（模型说明：%s）", reason), nil
+		}
 		log.Printf("[external_query] 查询失败: %v", runErr)
 		return sql, fmt.Sprintf("抱歉，查询执行失败：%s", runErr.Error()), nil
 	}

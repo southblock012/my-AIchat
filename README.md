@@ -9,6 +9,7 @@
 | 后端框架 | Gin (Go) |
 | AI 框架 | CloudWeGo Eino |
 | 数据库 | MySQL 8.0 (GORM) |
+| 向量数据库 | Weaviate（RAG / NL2SQL 混合检索） |
 | 缓存 | Redis 7 |
 | 消息队列 | RabbitMQ |
 | 前端 | Vue 3 + Element Plus + Axios |
@@ -21,6 +22,7 @@
 - **会话管理** — 多会话独立管理，保留历史消息
 - **长期记忆** — AI 自动从对话中提取用户偏好并跨会话持久化
 - **RAG 知识库问答** — 基于内置文档的检索增强生成，自动检索相关片段注入 prompt
+- **自然语言查数据库（Text-to-SQL）** — 用日常语言描述需求，自动检索相关表、生成只读 SQL、执行并把结果总结成中文（详见 [nl2sql_README.md](nl2sql_README.md)）
 - **上下文窗口** — 保留最近对话历史，Redis 缓存加速
 - **用户认证** — JWT 登录/注册，邮箱验证码
 
@@ -86,6 +88,7 @@ docker compose -f deploy/docker-compose.yml up -d --build
 | 后端 | 8080 | 8081 |
 | MySQL | 3306 | 3307 |
 | Redis | 6379 | 6380 |
+| Weaviate | 8080 | 8082 |
 | RabbitMQ | 5672 | 5673 |
 | RabbitMQ 管理面板 | 15672 | 15673 |
 
@@ -131,7 +134,15 @@ my-AIchat/
 │   │   ├── cache.go             # Redis 上下文窗口缓存
 │   │   ├── memory.go            # 长期记忆提取
 │   │   ├── manager.go           # AIHelper 管理器
-│   │   └── factory.go           # 模型工厂
+│   │   ├── factory.go           # 模型工厂
+│   │   └── external_query.go    # NL2SQL 编排模型 (modelType=4)
+│   ├── dbquery/                 # 自然语言查库（Text-to-SQL）
+│   │   ├── schema.go            # 读 information_schema + LLM 注解
+│   │   ├── catalog.go           # 库表结构缓存 + Weaviate 索引
+│   │   ├── retrieval.go         # 混合检索 + 百炼重排 + 关键词兜底
+│   │   ├── sqlgen.go            # SQL 生成 + 只读护栏 + 自愈
+│   │   └── executor.go          # 只读执行 + 截断 + 结果压文本
+│   ├── rag/                     # RAG 检索 + 重排器（被 dbquery 复用）
 │   └── code/                    # 错误码定义
 ├── middleware/jwt/              # JWT 鉴权中间件
 ├── utils/                       # 工具函数
@@ -229,3 +240,43 @@ AI 在每次对话后自动提取关键信息，跨会话持久化：
 - 首次调用时自动建表并灌入库
 - 每段按空行分割，过滤短片段（< 10 字）
 - 零外部依赖，不使用向量数据库
+
+---
+
+## 自然语言查数据库（Text-to-SQL）
+
+> 在 RAG 的基础上新增 **Text-to-SQL** 能力：在聊天界面选择「自然语言查数据库」（modelType=4），
+> 用日常语言描述需求（如「最近注册的 10 个用户」），系统会自动检索相关表 → 生成只读 SQL → 执行 → 把结果总结成中文。
+> 后端完全复用项目既有的 **Weaviate + 百炼 embedding + cross-encoder 重排 + 混合检索** 设施，
+> 仅在 `common/dbquery` 包内把「文档」换成「库表结构」做向量化与检索；前端只在模型下拉框加了一个选项。
+
+### 数据流
+
+1. 前端透传 `modelType=4`，`service` / `controller` 零改动；
+2. `aihelper.Manager` 按 `modelType` 创建 `ExternalQueryModel`（复用三层会话 map）；
+3. 编排 `dbquery` 子管道：混合检索相关表 → 拼表结构 prompt → LLM 生成 SQL → 只读护栏校验 → 带超时执行（截断 `maxRows`）→ 失败自愈一次 → LLM 总结成口语化中文；
+4. 复用 `/ai-chat/chat/send`（同步返回总结）与 `/ai-chat/chat/send-stream`（流式先推 SQL 代码块再推总结）接口。
+
+### 安全护栏（三层）
+
+- **连接层**：外部库建议使用**只读账号** DSN；
+- **代码层**：只读白名单（仅 `SELECT / SHOW / DESCRIBE / WITH / EXPLAIN`）+ 拒绝多语句 + 强制 `LIMIT` + 查询超时；
+- **结果层**：执行结果截断到 `maxRows` 行，结果文本二次字符预算截断。
+
+### 配置
+
+`config.toml` 的 `[externalDBConfig]` 段：
+
+```toml
+[externalDBConfig]
+dsn                 = "root:123456@tcp(127.0.0.1:3306)/"   # 外部库连接串（不含库名，库名走下方 schema）
+schema              = "aichat"                              # 要查的库名（TABLE_SCHEMA），必填
+topK                = 5                                     # 检索阶段返回的最大相关表数
+maxRows             = 100                                   # 单条查询最多返回行数
+queryTimeoutSeconds = 10                                    # 单条查询超时秒数
+```
+
+同时需要 `EMBEDDING_API_KEY`（百炼/DashScope 密钥，与 RAG 共用同一变量）。
+embedding / rerank / 混合权重均来自 `config.RagModelConfig`，**无需为 NL2SQL 单独配置**。
+
+> 完整的改动文件清单、各 Phase 详解、运行前提与验证步骤见 [nl2sql_README.md](nl2sql_README.md)。
