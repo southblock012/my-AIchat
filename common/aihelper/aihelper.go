@@ -10,6 +10,11 @@ import (
 	"github.com/cloudwego/eino/schema"
 )
 
+// modelTypeExternalQuery 是「自然语言查库」模型的语义类型标识（对应 factory 注册的 "4"）。
+// 该模式为一次性只读查询，不依赖跨会话长期记忆，且复用其模型做记忆抽取会误触查库链路，
+// 因此在 ExtractAndSaveMemories 调用处跳过。
+const modelTypeExternalQuery = "external_query"
+
 // AIHelper AI助手结构体，包含消息历史和AI模型
 type AIHelper struct {
 	model    AIModel
@@ -102,10 +107,13 @@ func (a *AIHelper) GenerateResponse(userName string, ctx context.Context, userQu
 	_ = saveContextWindow(a.SessionID, hist)
 
 	//最小闭环：后台抽取本轮记忆（goroutine 不阻塞回复；生产建议改 RabbitMQ 异步队列）
-	go func() {
-		defer func() { _ = recover() }()
-		a.ExtractAndSaveMemories(ctx, userName, userQuestion, modelMsg.Content)
-	}()
+	// 自然语言查库模式（external_query）是一次性查询、不依赖跨会话记忆，且其模型复用会误触查库链路，故跳过。
+	if a.GetModelType() != modelTypeExternalQuery {
+		go func() {
+			defer func() { _ = recover() }()
+			a.ExtractAndSaveMemories(ctx, userName, userQuestion, modelMsg.Content)
+		}()
+	}
 
 	return modelMsg, nil
 }
@@ -149,10 +157,13 @@ func (a *AIHelper) StreamResponse(userName string, ctx context.Context, cb Strea
 	_ = saveContextWindow(a.SessionID, hist)
 
 	//最小闭环：后台抽取本轮记忆
-	go func() {
-		defer func() { _ = recover() }()
-		a.ExtractAndSaveMemories(ctx, userName, userQuestion, modelMsg.Content)
-	}()
+	// 自然语言查库模式（external_query）跳过记忆抽取，原因同上。
+	if a.GetModelType() != modelTypeExternalQuery {
+		go func() {
+			defer func() { _ = recover() }()
+			a.ExtractAndSaveMemories(ctx, userName, userQuestion, modelMsg.Content)
+		}()
+	}
 
 	return modelMsg, nil
 }

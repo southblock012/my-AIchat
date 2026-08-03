@@ -141,13 +141,17 @@ export default {
       if (!text && text !== '') return ''
       let html = String(text)
       // 还原后端 SSE 对换行的转义（\\n/\\r -> 真实换行），否则 SQL 代码块、表格等多行内容会挤成一行
-      html = html.replace(/\\n/g, '\n').replace(/\\r/g, '\r')
+      // 用 split/join 比 replace 正则更直观，彻底避开转义歧义
+      html = html.split('\\n').join('\n').split('\\r').join('\r')
+      // 统一换行符为 \n，避免 \r\n 让 markdown 表格/代码块正则匹配失败
+      html = html.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
       // 代码块 ```lang\n...\n``` 先行处理（避免内部字符被其余规则破坏）
-      html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (m, lang, code) => {
+      // 吞掉代码块前后的换行，避免渲染出多余 <br>，让间距完全由 CSS margin 控制
+      html = html.replace(/\n*```(\w*)\n([\s\S]*?)\n```\n*/g, (m, lang, code) => {
         return '<pre class="md-code-block"><code>' + escapeHtml(code.replace(/\n$/, '')) + '</code></pre>'
       })
-      // markdown 表格
-      html = html.replace(/((?:\|[^\n]*\|\n?)+)/g, (m) => parseMarkdownTable(m))
+      // markdown 表格：同样吞掉表格前后的换行
+      html = html.replace(/\n*((?:\|[^\n]*\|\n?)+)\n*/g, (m) => parseMarkdownTable(m))
       html = html.replace(/`([^`]+)`/g, (m, code) => '<code class="md-inline-code">' + escapeHtml(code) + '</code>')
       html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
       html = html.replace(/\*(.*?)\*/g, '<em>$1</em>')
@@ -820,17 +824,17 @@ export default {
   font-weight: 500;
 }
 
-/* NL2SQL 流式返回的 SQL 代码块 & 行内代码 */
+/* NL2SQL 流式返回的 SQL 代码块、表格 & 行内代码 */
 .md-code-block {
   background: #282c34;
   color: #abb2bf;
-  padding: 12px 14px;
+  padding: 10px 14px;
   border-radius: 10px;
   overflow-x: auto;
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   font-size: 13px;
   line-height: 1.5;
-  margin: 8px 0;
+  margin: 18px 0 32px;
 }
 
 .md-code-block code {
@@ -849,28 +853,45 @@ export default {
 .md-table {
   width: 100%;
   border-collapse: collapse;
-  margin: 10px 0;
+  margin: 12px 0 32px;
   font-size: 14px;
-  background: rgba(255, 255, 255, 0.6);
-  border-radius: 8px;
-  overflow: hidden;
+  line-height: 1.5;
+  color: #1f2937;
+  background: transparent;
+}
+
+.md-table thead tr {
+  border-bottom: 2px solid #e5e7eb;
+}
+
+.md-table tbody tr {
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.md-table tbody tr:last-child {
+  border-bottom: none;
 }
 
 .md-table th,
 .md-table td {
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  padding: 8px 12px;
+  padding: 12px 30px;
   text-align: left;
+  vertical-align: middle;
 }
 
 .md-table th {
-  background: rgba(64, 158, 255, 0.12);
+  background: transparent;
   font-weight: 600;
-  color: #2c3e50;
+  color: #111827;
 }
 
-.md-table tr:nth-child(even) {
-  background: rgba(0, 0, 0, 0.02);
+.md-table td {
+  color: #4b5563;
+  word-break: break-word;
+}
+
+.md-table tbody tr:hover {
+  background: #f9fafb;
 }
 
 .chat-messages {
