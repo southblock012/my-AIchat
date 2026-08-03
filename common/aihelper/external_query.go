@@ -92,10 +92,11 @@ func dashScopeHTTPClient() *http.Client {
 func (o *ExternalQueryModel) summarizeMessages(question, sql, resultText string) []*schema.Message {
 	system := `你是数据库查询结果解读助手。请根据用户问题和查询结果，用简洁、口语化的中文回答用户。
 要求：
-1. 直接回答用户的问题，不要罗列原始数据；
-2. 如果查询无结果，明确告知"没有查到相关数据"，不要编造；
-3. 可以在必要时用一句话说明你依据的是哪些表/字段；
-4. 不要输出 SQL 代码块（SQL 会另行展示）。`
+1. 直接回答用户的问题，不要简单罗列原始数据；
+2. 如果查询结果是多行结构化数据，请优先用 markdown 表格清晰展示关键字段，表格后加一两句话总结；
+3. 如果查询无结果，明确告知"没有查到相关数据"，不要编造；
+4. 可以在必要时用一句话说明你依据的是哪些表/字段；
+5. 不要输出 SQL 代码块（SQL 会另行展示）。`
 	user := fmt.Sprintf("用户问题：%s\n\n执行的 SQL：\n%s\n\n查询结果：\n%s\n\n请用中文总结回答：",
 		question, sql, resultText)
 	return []*schema.Message{

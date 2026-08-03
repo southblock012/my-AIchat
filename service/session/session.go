@@ -9,6 +9,7 @@ import (
 	"my-AIchat/dao/session"
 	"my-AIchat/model"
 	"net/http"
+	"strings"
 
 	"github.com/google/uuid"
 )
@@ -102,7 +103,10 @@ func StreamMessageToExistingSession(userName string, sessionID string, userQuest
 	}
 
 	cb := func(msg string) {
-		// 直接发送数据，不转义
+		// SSE data 字段需要是单行：把 msg 内部的 \n/\r 转义成字面量 \\n/\\r，
+		// 前端收到后再还原。否则含换行的内容会被拆成多个 data 字段，
+		// 导致 SQL 代码块/表格等丢失换行，renderMarkdown 无法识别。
+		msg = strings.NewReplacer("\n", "\\n", "\r", "\\r").Replace(msg)
 		// SSE 格式：data: <content>\n\n
 		log.Printf("[SSE] Sending chunk: %s (len=%d)\n", msg, len(msg))
 		_, err := writer.Write([]byte("data: " + msg + "\n\n"))

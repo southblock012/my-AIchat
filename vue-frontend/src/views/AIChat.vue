@@ -113,13 +113,41 @@ export default {
         .replace(/"/g, '&quot;')
     }
 
+    const parseMarkdownTable = (tableText) => {
+      const lines = tableText.trim().split('\n').filter(line => line.trim())
+      if (lines.length < 2) return tableText
+      const splitCells = (s) => s.split('|').map(c => c.trim()).filter(c => c !== '')
+      const sepCells = splitCells(lines[1])
+      if (!sepCells.every(c => /^[-:\s]+$/.test(c))) {
+        return tableText
+      }
+      let tableHtml = '<table class="md-table"><thead><tr>'
+      for (const cell of splitCells(lines[0])) {
+        tableHtml += '<th>' + escapeHtml(cell) + '</th>'
+      }
+      tableHtml += '</tr></thead><tbody>'
+      for (let i = 2; i < lines.length; i++) {
+        tableHtml += '<tr>'
+        for (const cell of splitCells(lines[i])) {
+          tableHtml += '<td>' + escapeHtml(cell) + '</td>'
+        }
+        tableHtml += '</tr>'
+      }
+      tableHtml += '</tbody></table>'
+      return tableHtml
+    }
+
     const renderMarkdown = (text) => {
       if (!text && text !== '') return ''
       let html = String(text)
+      // 还原后端 SSE 对换行的转义（\\n/\\r -> 真实换行），否则 SQL 代码块、表格等多行内容会挤成一行
+      html = html.replace(/\\n/g, '\n').replace(/\\r/g, '\r')
       // 代码块 ```lang\n...\n``` 先行处理（避免内部字符被其余规则破坏）
       html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (m, lang, code) => {
         return '<pre class="md-code-block"><code>' + escapeHtml(code.replace(/\n$/, '')) + '</code></pre>'
       })
+      // markdown 表格
+      html = html.replace(/((?:\|[^\n]*\|\n?)+)/g, (m) => parseMarkdownTable(m))
       html = html.replace(/`([^`]+)`/g, (m, code) => '<code class="md-inline-code">' + escapeHtml(code) + '</code>')
       html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
       html = html.replace(/\*(.*?)\*/g, '<em>$1</em>')
@@ -816,6 +844,33 @@ export default {
   border-radius: 4px;
   font-family: "SFMono-Regular", Consolas, monospace;
   font-size: 13px;
+}
+
+.md-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 10px 0;
+  font-size: 14px;
+  background: rgba(255, 255, 255, 0.6);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.md-table th,
+.md-table td {
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  padding: 8px 12px;
+  text-align: left;
+}
+
+.md-table th {
+  background: rgba(64, 158, 255, 0.12);
+  font-weight: 600;
+  color: #2c3e50;
+}
+
+.md-table tr:nth-child(even) {
+  background: rgba(0, 0, 0, 0.02);
 }
 
 .chat-messages {

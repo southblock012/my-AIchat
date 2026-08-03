@@ -68,8 +68,8 @@ func ExecSQL(ctx context.Context, db *gorm.DB, sql string, maxRows int) (rows []
 	return out, truncated, nil
 }
 
-// RowsToText 把查询结果压成紧凑文本（列名 + 行），用于喂给总结 LLM。
-// 这里再做一次字符预算截断，避免超大文本撑爆上下文。
+// RowsToText 把查询结果格式化为 markdown 表格，用于喂给总结 LLM。
+// markdown 表格更易读，也方便前端直接渲染成 HTML 表格。
 func RowsToText(rows []map[string]interface{}, truncated bool) string {
 	if len(rows) == 0 {
 		return "(查询无结果 / 没有匹配的数据)"
@@ -81,23 +81,34 @@ func RowsToText(rows []map[string]interface{}, truncated bool) string {
 	}
 
 	var b strings.Builder
-	b.WriteString("列: ")
-	b.WriteString(strings.Join(cols, ", "))
-	b.WriteString("\n")
-	b.WriteString("行数: ")
-	b.WriteString(fmt.Sprintf("%d", len(rows)))
-	if truncated {
-		b.WriteString(" (已截断，仅展示前 N 行)")
+	// 表头
+	b.WriteString("| ")
+	b.WriteString(strings.Join(cols, " | "))
+	b.WriteString(" |\n")
+	// 分隔符
+	b.WriteString("| ")
+	sepParts := make([]string, len(cols))
+	for i := range cols {
+		sepParts[i] = strings.Repeat("-", 3)
 	}
-	b.WriteString("\n\n")
-	for i, r := range rows {
-		b.WriteString(fmt.Sprintf("行%d: ", i+1))
+	b.WriteString(strings.Join(sepParts, " | "))
+	b.WriteString(" |\n")
+	// 数据行
+	for _, r := range rows {
+		b.WriteString("| ")
 		parts := make([]string, 0, len(cols))
 		for _, c := range cols {
-			parts = append(parts, fmt.Sprintf("%s=%v", c, r[c]))
+			parts = append(parts, fmt.Sprintf("%v", r[c]))
 		}
-		b.WriteString(strings.Join(parts, ", "))
-		b.WriteString("\n")
+		b.WriteString(strings.Join(parts, " | "))
+		b.WriteString(" |\n")
+	}
+	b.WriteString("\n")
+	b.WriteString(fmt.Sprintf("(共 %d 行结果", len(rows)))
+	if truncated {
+		b.WriteString("，已截断，仅展示前 N 行)")
+	} else {
+		b.WriteString(")")
 	}
 	return b.String()
 }
