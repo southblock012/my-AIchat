@@ -17,17 +17,21 @@ import (
 var ctx = context.Background()
 
 func GetUserSessionsByUserName(userName string) ([]model.SessionInfo, error) {
-	//获取用户的所有会话ID
-
-	manager := aihelper.GetGlobalManager()
-	Sessions := manager.GetUserSessions(userName)
+	// 直接查数据库，返回真实 Title（首次提问），按 UpdatedAt 倒序
+	dbSessions, err := session.GetSessionsByUserName(userName)
+	if err != nil {
+		return nil, err
+	}
 
 	var SessionInfos []model.SessionInfo
-
-	for _, session := range Sessions {
+	for _, s := range dbSessions {
+		title := s.Title
+		if title == "" {
+			title = "未命名会话"
+		}
 		SessionInfos = append(SessionInfos, model.SessionInfo{
-			SessionID: session,
-			Title:     session, // 暂时用sessionID作为标题，后续重构需要的时候可以更改
+			SessionID: s.ID,
+			Title:     title,
 		})
 	}
 

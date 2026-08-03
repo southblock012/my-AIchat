@@ -7,7 +7,11 @@ import (
 
 func GetSessionsByUserName(userName string) ([]model.Session, error) {
 	var sessions []model.Session
-	err := mysql.DB.Where("user_name = ?", userName).Find(&sessions).Error
+	// 仅查未删除的会话，按最近更新时间倒序（最新的排在最前）
+	err := mysql.DB.
+		Where("user_name = ? AND deleted_at IS NULL", userName).
+		Order("updated_at DESC").
+		Find(&sessions).Error
 	return sessions, err
 }
 
