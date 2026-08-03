@@ -112,8 +112,12 @@ func (o *ExternalQueryModel) GenerateResponse(ctx context.Context, messages []*s
 		log.Printf("[external_query] 同步链路异常: %v", err)
 		return &schema.Message{Role: schema.Assistant, Content: "服务暂时不可用，请稍后重试。"}, nil
 	}
-	_ = sql // 同步模式下 SQL 已并入 answer 文本展示
-	return &schema.Message{Role: schema.Assistant, Content: answer}, nil
+	// 把执行的 SQL 也并入回答文本，保证历史消息（写库）里能看到 SQL，刷新后不丢失
+	content := answer
+	if sql != "" {
+		content = "执行 SQL:\n```sql\n" + sql + "\n```\n\n" + answer
+	}
+	return &schema.Message{Role: schema.Assistant, Content: content}, nil
 }
 
 // StreamResponse 流式生成：先推送已执行的 SQL（透明展示），再流式输出自然语言总结。
@@ -125,9 +129,11 @@ func (o *ExternalQueryModel) StreamResponse(ctx context.Context, messages []*sch
 		cb(friendly)
 		return friendly, nil
 	}
-	// 先把执行的 SQL 推给前端，再流式输出总结
+	// 先把执行的 SQL 推给前端，再流式输出总结；同时把 SQL 前缀拼进返回值，保证写库内容包含执行 SQL（刷新不丢失）
+	var sqlPrefix string
 	if sql != "" {
-		cb("执行 SQL:\n```sql\n" + sql + "\n```\n\n")
+		sqlPrefix = "执行 SQL:\n```sql\n" + sql + "\n```\n\n"
+		cb(sqlPrefix)
 	}
 	full, err := o.streamText(ctx, o.summarizeMessages(questionFrom(messages), sql, answer), cb)
 	if err != nil {
@@ -136,7 +142,7 @@ func (o *ExternalQueryModel) StreamResponse(ctx context.Context, messages []*sch
 		cb(friendly)
 		return friendly, nil
 	}
-	return full, nil
+	return sqlPrefix + full, nil
 }
 
 // run 是查库链路的公共实现：检索 → 生成 → 执行(自愈) → 拼装「SQL + 结果文本」。
