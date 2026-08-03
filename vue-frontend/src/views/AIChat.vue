@@ -853,7 +853,7 @@ export default {
 .md-table {
   width: 100%;
   border-collapse: collapse;
-  margin: 12px 0 32px;
+  margin: 32px 0;
   font-size: 14px;
   line-height: 1.5;
   color: #1f2937;
