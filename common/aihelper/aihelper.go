@@ -43,6 +43,8 @@ func (a *AIHelper) AddMessage(Content string, UserName string, IsUser bool, Save
 		UserName:  UserName,
 		IsUser:    IsUser,
 	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	a.messages = append(a.messages, &userMsg)
 	if Save {
 		a.saveFunc(&userMsg)

@@ -263,5 +263,5 @@ func (o *AliRAGModel) streamWith(ctx context.Context, messages []*schema.Message
 	return fullResp.String(), nil
 }
 
-// GetModelType 返回工厂注册号 "3"。
-func (o *AliRAGModel) GetModelType() string { return "3" }
+// GetModelType 返回模型语义名称。
+func (o *AliRAGModel) GetModelType() string { return "rag" }

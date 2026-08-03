@@ -63,8 +63,8 @@ func NewExternalQueryModel(ctx context.Context, username string) (*ExternalQuery
 	return &ExternalQueryModel{llm: llm, username: username, cat: cat}, nil
 }
 
-// GetModelType 返回工厂注册号 "4"。
-func (o *ExternalQueryModel) GetModelType() string { return "4" }
+// GetModelType 返回模型语义名称。
+func (o *ExternalQueryModel) GetModelType() string { return "external_query" }
 
 // questionFrom 取对话中最后一条用户消息作为查询问题。
 func questionFrom(messages []*schema.Message) string {
